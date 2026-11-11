@@ -1,1 +1,19 @@
-{"name":"colun-cuadro-resultado","private":true,"type":"module","scripts":{"build":"node build.mjs","preview":"node preview.mjs"}}
+{
+  "name": "colun-libro-mayor",
+  "private": true,
+  "type": "module",
+  "engines": {"node": "22.x"},
+  "scripts": {
+    "build": "node build-vercel.mjs",
+    "build:sites": "node build.mjs",
+    "preview:sites": "node preview.mjs",
+    "check": "node --check api/index.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.9.0",
+    "@vercel/functions": "3.11.1",
+    "archiver": "8.0.0",
+    "pg": "8.23.1",
+    "pg-query-stream": "4.17.1"
+  }
+}

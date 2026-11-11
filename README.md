@@ -1,44 +1,48 @@
-# COLUN · Cuadro de resultado
+# COLUN · Libro Mayor
 
-Página privada para consultar `public.colun_colun_cuadroresultado` en PostgreSQL de Finnegans.
+Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` con paginación de 50 filas y exportación completa a Excel.
+
+## Despliegue en Vercel
+
+El proyecto utiliza Node.js 22, una interfaz estática y una única API del servidor. `vercel.json` configura la compilación, las rutas, la región `iad1` y las funciones de hasta 300 segundos del plan Hobby.
+
+1. Importar `FisterraSRL/ColunLibroMayor` en Vercel y utilizar la rama `main`.
+2. Guardar `PGPASSWORD` como secreto del entorno Production. Las credenciales no van en el repositorio ni en el navegador.
+3. Conectar un almacén Vercel Blob **privado**, en `iad1`, al mismo proyecto. La conexión proporciona `BLOB_STORE_ID` y utiliza la identidad OIDC de Vercel; también admite `BLOB_READ_WRITE_TOKEN` cuando la conexión lo requiera.
+4. Desplegar y comprobar `/api/health`, la grilla, Actualizar y Exportar a Excel.
+
+Valores de PostgreSQL configurables en el servidor:
+
+| Variable | Valor predeterminado |
+| --- | --- |
+| PGHOST | finnegans-bi-1.postgres.database.azure.com |
+| PGPORT | 5432 |
+| PGDATABASE | finnegansbi |
+| PGUSER | colunuser |
+| PGPASSWORD | Secreto obligatorio, sin valor predeterminado |
+
+La conexión usa TLS con verificación de certificado y transacciones de solo lectura. Si Finnegans restringe las IP de origen, debe habilitarse el servidor que realiza las consultas.
 
 ## Uso
 
-La página consulta el origen al abrirse. **Actualizar** vuelve a contar los registros y carga la primera página. La grilla muestra 50 filas por página y todas las columnas; permite ir directamente a una página y saltar horizontalmente a una columna.
+La página consulta el origen al abrirse. **Actualizar** vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite saltar horizontalmente a una columna. Se puede navegar directamente a cualquier página.
 
-**Exportar a Excel** genera el dataset completo en segundo plano. Cuando termina aparece **Descargar Excel**. Los valores se exportan como texto, tal como están almacenados, para preservar identificadores, ceros iniciales, fechas e importes. Si el dataset supera el límite por hoja, se crean hojas adicionales automáticamente. No hay un límite artificial de filas en la exportación.
+**Exportar a Excel** prepara un snapshot consistente del origen en bloques comprimidos del almacenamiento privado y libera PostgreSQL antes de generar el archivo. Una segunda etapa escribe el XLSX como un flujo con ZIP64, sin archivos grandes en disco ni un proceso local permanente. El estado persistente permite continuar tras recargar la página. Mantené la página abierta hasta ver **Descargar Excel**.
 
-## Arquitectura
+La exportación incluye todas las filas y columnas. Los valores se escriben como texto para conservar identificadores, ceros iniciales, fechas, importes y fórmulas literales. Si se supera el límite de filas de una hoja, se crean hojas adicionales. Los campos que excedan el límite de caracteres de Excel producen un error explícito y no se truncan.
 
-`Navegador → Site privado → pasarela HTTPS con token → PostgreSQL (TLS, solo lectura)`
+Solo se ejecuta una exportación completa a la vez. Se conserva el último archivo; comenzar una nueva exportación reemplaza los archivos temporales anteriores. Los enlaces vencen a las 24 horas. El consumo de Blob y transferencias está sujeto a las cuotas del plan de Vercel.
 
-- Sites controla el acceso privado del propietario.
-- El Worker usa dos secretos de runtime: `BRIDGE_URL` y `BRIDGE_TOKEN`.
-- La contraseña de PostgreSQL y el token de la pasarela están únicamente en memoria del proceso local; no se incluyen en el código, el navegador ni el repositorio.
-- Todas las rutas de la pasarela requieren el token. Solo se exponen consultas prefijadas y la exportación de esta tabla; no se acepta SQL del cliente.
-- PostgreSQL se consulta en transacciones de solo lectura. La exportación obtiene un snapshot con COPY binario en una transacción de lectura repetible, lo transfiere directamente a un archivo temporal y libera la conexión antes de generar Excel. La escritura de Excel usa memoria constante y preserva NULL, cadenas vacías y Unicode.
-- Cada exportación verifica que las filas escritas coincidan con el conteo de su snapshot.
-- Los archivos de exportación son temporales, quedan fuera del repositorio y se eliminan al cerrar la pasarela o iniciar una nueva exportación.
-- El orden de la grilla usa la ubicación física de la fila (`ctid`). Una actualización del Data Warehouse puede cambiar el orden entre páginas; **Actualizar** inicia una nueva consulta en la primera página. La exportación incluye todo el snapshot independientemente del orden.
+## Acceso
 
-## Disponibilidad de la conexión
+Por decisión del propietario, esta aplicación no agrega usuario, contraseña ni validación de sesión de Finnegans. Puede abrirse directamente por su URL o mediante un enlace externo. Las credenciales de PostgreSQL y del almacenamiento permanecen en el servidor. No se acepta SQL del navegador; la API solo consulta la tabla configurada.
 
-La pasarela y el túnel HTTPS de esta entrega se ejecutan en este equipo. El Site permanece publicado, pero las consultas y la generación/descarga de Excel requieren que ambos procesos sigan activos y que el equipo tenga conexión a Internet.
+## Desarrollo
 
-El túnel de esta entrega es temporal. Al reiniciarlo cambia su URL y se deben actualizar los secretos de Sites y desplegar una versión que aplique esa configuración. Para reactivarlo sin guardar credenciales en archivos, pedí en este chat que se restablezca la pasarela. Para funcionamiento permanente se necesita desplegar esta pasarela en un servidor con acceso a PostgreSQL y una URL HTTPS estable, o configurar un túnel permanente de Cloudflare en una cuenta del usuario.
+- Instalar dependencias con `pnpm install --frozen-lockfile --ignore-scripts`.
+- `pnpm build` genera la interfaz en `public/`.
+- `pnpm check` comprueba la sintaxis de la API.
+- `api/index.mjs` implementa las consultas, el estado durable y el generador XLSX.
+- `static/` contiene la interfaz.
 
-## Desarrollo y validación
-
-No hay dependencias JavaScript de compilación. `node build.mjs` genera `dist/server/index.js` y copia el manifiesto de hosting.
-
-La pasarela requiere Python y los paquetes de `requirements.txt`. `python gateway.py --stdin-config` solicita un objeto JSON oculto con `password` y `token`. No pasar secretos por argumentos de comandos ni escribirlos en archivos.
-
-`checks.py` comprueba la protección de acceso, la primera/segunda/última página, las 68 columnas, la conexión HTTPS, la exportación de datos reales, el cambio de hoja y la preservación literal de fórmulas, Unicode y ceros iniciales. Solicita configuración oculta por stdin y no imprime datos contables ni secretos.
-
-`preview.mjs` reproduce localmente el Worker; se usa solo para validación, y debe cerrarse al terminar. La página publicada utiliza la pasarela real por HTTPS.
-
-## GitHub y próximo despliegue en Vercel
-
-Este repositorio contiene la versión actual de la publicación en Sites y su pasarela PostgreSQL. No incluye contraseñas, tokens, exportaciones ni copias de los datos.
-
-La migración a Vercel todavía requiere adaptar el Worker a rutas de servidor compatibles, configurar los secretos de conexión y mantener el estado de las exportaciones y sus archivos en almacenamiento persistente. El acceso privado actual lo proporciona Sites; en Vercel se debe configurar autenticación para la página, la API y las descargas antes de habilitar consultas al Data Warehouse.
+La pasarela Python (`gateway.py`), `worker.mjs`, `build.mjs`, `preview.mjs` y `.openai/hosting.json` se conservan como referencia de la publicación anterior en Sites. El despliegue de Vercel no los utiliza y no requiere la pasarela ni el túnel de aquel prototipo.
