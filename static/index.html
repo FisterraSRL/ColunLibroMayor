@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#147966">
+  <meta name="description" content="Consulta privada del cuadro de resultado COLUN. Datos en vivo de Finnegans, 50 registros por página y exportación completa a Excel.">
+  <title>COLUN · Cuadro de resultado</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23147966'/%3E%3Ctext x='11' y='29' font-family='Arial' font-size='28' fill='white'%3EC%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="COLUN, inicio"><span class="brand-mark">C<span></span></span><span>COLUN<span class="brand-divider">/</span><span class="brand-label">Data Warehouse</span></span></a>
+    <div class="private"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Acceso privado</div>
+  </header>
+  <main>
+    <div class="breadcrumb">FINNEGANS<span>/</span>EXPLORADOR DE DATOS</div>
+    <section class="intro">
+      <div><div class="eyebrow"><span class="dot"></span>INFORMACIÓN CONTABLE</div><h1>Cuadro de resultado<span>.</span></h1><p>Todos tus movimientos, en un solo lugar.</p></div>
+      <div class="actions">
+        <button id="refresh" class="button secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 11-2l3 3M4 16l3 3a7 7 0 0 0 11-2"/></svg><span>Actualizar</span></button>
+        <button id="export" class="button primary" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg><span>Exportar a Excel</span></button>
+      </div>
+    </section>
+    <section class="metrics" aria-label="Resumen de la tabla">
+      <div class="metric"><div class="metric-label">REGISTROS TOTALES<span class="metric-icon">↗</span></div><div id="total" class="metric-value">—</div><div class="metric-note">Tabla completa, sin recortes</div></div>
+      <div class="metric"><div class="metric-label">COLUMNAS DISPONIBLES<span class="metric-icon columns-icon">▥</span></div><div id="columns-count" class="metric-value">—</div><div class="metric-note">Todos los campos del dataset</div></div>
+      <div class="metric"><div class="metric-label">REGISTROS POR PÁGINA<span class="metric-icon">≡</span></div><div class="metric-value">50</div><div class="metric-note">Navegación página por página</div></div>
+      <div class="metric status-metric"><div class="metric-label">CONEXIÓN A FINNEGANS</div><div id="connection" class="connection"><span class="dot"></span><span>Conectando</span></div><div id="checked-at" class="metric-note">Validando acceso a PostgreSQL…</div></div>
+    </section>
+    <section id="export-panel" class="export-panel" hidden aria-live="polite">
+      <div class="export-top"><div><strong id="export-title">Preparando Excel completo</strong><p id="export-detail">Iniciando exportación…</p></div><a id="download" class="button primary" hidden>Descargar Excel</a></div>
+      <progress id="export-progress" max="100" value="0" aria-label="Progreso de exportación"></progress>
+      <p class="export-note">Incluye todas las filas y columnas, con sus valores originales. Podés seguir navegando mientras se genera.</p>
+    </section>
+    <div id="error" class="error" role="alert" hidden><span id="error-text"></span><button id="retry" class="button secondary">Reintentar</button></div>
+    <section class="data-card" aria-label="Grilla de resultados">
+      <div class="table-toolbar"><div class="table-title"><span class="table-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></svg></span><div><h2>Movimientos contables</h2><p>COLUN_CuadroResultado</p></div></div><div class="table-options"><span id="live" class="live"><span class="dot"></span>DATOS EN VIVO</span><label for="column-jump" class="sr-only">Ir a una columna</label><select id="column-jump" disabled><option value="">Ir a una columna…</option></select></div></div>
+      <div class="table-help"><span><strong>Todas las columnas</strong><span class="help-divider">·</span>Deslizá horizontalmente para explorar los campos</span><span id="page-label">Cargando datos…</span></div>
+      <div id="grid" class="grid" tabindex="0" role="region" aria-label="Tabla desplazable de movimientos contables" aria-busy="true">
+        <div id="loading" class="loading"><span class="spinner"></span><strong>Consultando Finnegans</strong><span>Cargando 50 registros de la tabla completa…</span></div>
+        <table id="table" hidden><thead id="thead"></thead><tbody id="tbody"></tbody></table>
+        <div id="empty" class="empty" hidden><strong>La tabla no tiene registros</strong><p>Actualizá para volver a consultar el origen.</p></div>
+      </div>
+      <div class="pagination"><span id="range" class="range" role="status" aria-live="polite">Esperando resultados…</span><div class="page-controls"><span class="page-size">50 por página</span><button id="first" class="icon-button" aria-label="Primera página" disabled>«</button><button id="prev" class="icon-button" aria-label="Página anterior" disabled>‹</button><form id="page-form"><label for="page-input">Página</label><input id="page-input" type="number" min="1" value="1" disabled aria-label="Número de página"><span id="pages">de —</span></form><button id="next" class="icon-button" aria-label="Página siguiente" disabled>›</button><button id="last" class="icon-button" aria-label="Última página" disabled>»</button></div></div>
+    </section>
+    <footer><span><span class="footer-dot"></span>Origen: <code>public.colun_colun_cuadroresultado</code></span><span>Consulta de solo lectura<span class="help-divider">·</span>Importes y fechas según el origen</span></footer>
+  </main>
+</body></html>
