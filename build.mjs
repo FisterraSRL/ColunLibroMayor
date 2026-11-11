@@ -1,0 +1,11 @@
+import { readFile, mkdir, writeFile, copyFile } from 'node:fs/promises';
+const html = await readFile('static/index.html', 'utf8');
+const css = await readFile('static/style.css', 'utf8');
+const js = await readFile('static/app.js', 'utf8');
+const template = await readFile('worker.mjs', 'utf8');
+const code = template.replace('/* ASSETS */', `const ASSETS = ${JSON.stringify({'/':{body:html,type:'text/html; charset=utf-8'},'/style.css':{body:css,type:'text/css; charset=utf-8'},'/app.js':{body:js,type:'text/javascript; charset=utf-8'}})};`);
+await mkdir('dist/server', { recursive:true });
+await mkdir('dist/.openai', { recursive:true });
+await writeFile('dist/server/index.js', code);
+await copyFile('.openai/hosting.json', 'dist/.openai/hosting.json');
+console.log('Worker built: private page + protected streaming API proxy.');

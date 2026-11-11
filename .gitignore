@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.runtime/
+.cache/
+__pycache__/
+*.xlsx
+*.log
+.env
+.env.*
+!.env.example
+*.pgcopy
+artifacts/

@@ -1,0 +1,1 @@
+{"name":"colun-cuadro-resultado","private":true,"type":"module","scripts":{"build":"node build.mjs","preview":"node preview.mjs"}}
