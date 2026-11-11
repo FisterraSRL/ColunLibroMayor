@@ -92,7 +92,7 @@ async function load(page=1,refresh=false) {
   } catch(err) {
     state.page=previous;$('page-input').value=previous;
     $('loading').hidden=true;online(false);error(err.message);controls(false);
-    if(!state.columns.length) $('checked-at').textContent='Pasarela no disponible';
+    if(!state.columns.length) $('checked-at').textContent='Conexión no disponible';
   }
 }
 
@@ -120,7 +120,7 @@ function showJob(job) {
   if(job.phase==='reading') $('export-progress').removeAttribute('value');
   else $('export-progress').value=job.total?Math.min(100,100*job.processed/job.total):0;
   $('export-title').textContent=job.status==='ready'?'Tu Excel está listo':job.phase==='finalizing'?'Comprimiendo el archivo Excel…':'Preparando Excel completo';
-  $('export-detail').textContent=job.status==='ready'?processed+' registros · '+state.columns.length+' columnas · '+number.format(Math.ceil(job.bytes/1024/1024))+' MB':job.phase==='reading'?'Copiando '+total+' registros del origen. Luego se liberará la conexión para generar Excel.':processed+' de '+total+' registros procesados';
+  $('export-detail').textContent=job.status==='ready'?processed+' registros · '+state.columns.length+' columnas · '+number.format(Math.ceil(job.bytes/1024/1024))+' MB':job.phase==='reading'?'Preparando copia consistente del origen · '+number.format(job.captured || 0)+' registros leídos':processed+' de '+total+' registros procesados';
   $('download').hidden=job.status!=='ready';
   if(job.status==='ready') {$('export-progress').value=100;$('download').href='/api/exports/'+job.id+'/file';$('download').setAttribute('download','COLUN_CuadroResultado.xlsx');}
 }
@@ -131,12 +131,12 @@ function schedulePoll(jobId,delay=2500) {
     try {
       const job=await api('/api/exports/'+jobId);showJob(job);
       if(job.status==='error') throw new Error(job.error);
-      if(job.status==='ready') {state.job=null;$('export').disabled=false;$('export').querySelector('span').textContent='Exportar a Excel';return;}
+      if(job.status==='ready') {state.job=null;sessionStorage.removeItem('colun-export');$('export').disabled=false;$('export').querySelector('span').textContent='Exportar a Excel';return;}
       schedulePoll(jobId);
     } catch(err) {
       error(err.message);
       if(err.message.includes('venció') || err.message.includes('completar la exportación') || err.message.includes('32.767')) {
-        state.job=null;$('export').disabled=false;$('export').querySelector('span').textContent='Reintentar exportación';
+        state.job=null;sessionStorage.removeItem('colun-export');$('export').disabled=false;$('export').querySelector('span').textContent='Reintentar exportación';
         $('export-title').textContent='La exportación no se completó';
       } else {$('export-title').textContent='Reconectando con la exportación…';schedulePoll(jobId,8000);}
     }
@@ -147,7 +147,9 @@ $('export').addEventListener('click',async()=>{
   $('export').querySelector('span').textContent='Generando Excel…';
   try {
     const job=await api('/api/exports',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    state.job=job.id;showJob(job);schedulePoll(job.id);
+    state.job=job.id;sessionStorage.setItem('colun-export',job.id);showJob(job);schedulePoll(job.id);
   } catch(err) {error(err.message);$('export').disabled=false;$('export').querySelector('span').textContent='Exportar a Excel';}
 });
 load();
+const previousExport=sessionStorage.getItem('colun-export');
+if(previousExport && /^[a-f0-9]{32}$/.test(previousExport)){state.job=previousExport;schedulePoll(previousExport,100);}

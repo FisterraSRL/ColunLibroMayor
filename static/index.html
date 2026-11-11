@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#147966">
-  <meta name="description" content="Consulta privada del cuadro de resultado COLUN. Datos en vivo de Finnegans, 50 registros por página y exportación completa a Excel.">
+  <meta name="description" content="Consulta del cuadro de resultado COLUN. Datos en vivo de Finnegans, 50 registros por página y exportación completa a Excel.">
   <title>COLUN · Cuadro de resultado</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23147966'/%3E%3Ctext x='11' y='29' font-family='Arial' font-size='28' fill='white'%3EC%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
@@ -11,7 +11,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="COLUN, inicio"><span class="brand-mark">C<span></span></span><span>COLUN<span class="brand-divider">/</span><span class="brand-label">Data Warehouse</span></span></a>
-    <div class="private"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Acceso privado</div>
+    <div class="private">Libro Mayor · COLUN</div>
   </header>
   <main>
     <div class="breadcrumb">FINNEGANS<span>/</span>EXPLORADOR DE DATOS</div>
@@ -31,7 +31,7 @@
     <section id="export-panel" class="export-panel" hidden aria-live="polite">
       <div class="export-top"><div><strong id="export-title">Preparando Excel completo</strong><p id="export-detail">Iniciando exportación…</p></div><a id="download" class="button primary" hidden>Descargar Excel</a></div>
       <progress id="export-progress" max="100" value="0" aria-label="Progreso de exportación"></progress>
-      <p class="export-note">Incluye todas las filas y columnas, con sus valores originales. Podés seguir navegando mientras se genera.</p>
+      <p class="export-note">Incluye todas las filas y columnas, con sus valores originales. Podés seguir navegando en esta página; mantenela abierta hasta que el archivo esté listo.</p>
     </section>
     <div id="error" class="error" role="alert" hidden><span id="error-text"></span><button id="retry" class="button secondary">Reintentar</button></div>
     <section class="data-card" aria-label="Grilla de resultados">
