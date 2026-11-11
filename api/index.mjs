@@ -66,9 +66,11 @@ async function pageRows(page){
 
 function jobPath(id){return 'colun/exports/'+id+'/state.json';}
 async function readState(id){
-  const result=await get(jobPath(id),{access:'private',useCache:false});
+  // Keep the storage ETag stable for conditional writes: CDN compression can
+  // return a weak representation ETag for the larger snapshot manifest.
+  const result=await get(jobPath(id),{access:'private',useCache:false,headers:{'Accept-Encoding':'identity'}});
   if(!result || result.statusCode!==200) return null;
-  return {job:await new Response(result.stream).json(),etag:result.blob.etag};
+  return {job:await new Response(result.stream).json(),etag:result.blob.etag.replace(/^W\//,'')};
 }
 async function saveState(job,etag){
   return put(jobPath(job.id),JSON.stringify({...job,updatedAt:new Date().toISOString()}),{
@@ -154,7 +156,7 @@ async function runStage(id){
           if(!lines.length) return;
           const body=gzipSync(Buffer.from(lines.join('\n')+'\n'),{level:1});lines=[];
           const part=await put('colun/exports/'+id+'/snapshot-'+String(parts.length).padStart(4,'0')+'.ndjson.gz',body,
-            {access:'private',addRandomSuffix:false,contentType:'application/gzip',abortSignal:abort.signal});
+            {access:'private',addRandomSuffix:false,contentType:'application/gzip',ttlDays:1,abortSignal:abort.signal});
           parts.push(part.url);await update({captured:processed,parts:[...parts]});
         };
         try{
@@ -170,7 +172,7 @@ async function runStage(id){
       const book=createXlsxStream(job.columns,job.total,rows,async n=>update({processed:n,phase:n===job.total?'finalizing':'writing'}));
       abort.signal.addEventListener('abort',()=>book.stream.destroy(abort.signal.reason),{once:true});
       const uploaded=await put('colun/exports/'+id+'/COLUN_CuadroResultado.xlsx',book.stream,
-        {access:'private',addRandomSuffix:false,multipart:true,
+        {access:'private',addRandomSuffix:false,multipart:true,ttlDays:1,
          contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',abortSignal:abort.signal});
       await book.completion;
       const info=await get(uploaded.url,{access:'private',useCache:false});
