@@ -18,19 +18,19 @@ function online(value) {
   $('connection').lastElementChild.textContent=value?'Conectado':'Sin conexión';
   $('live').hidden=!value;
 }
-function dateMinusYear(value) {
+function periodStart(value) {
   const [year,month,day]=value.split('-').map(Number);
   if(!year || !month || !day) return null;
   const lastDay=new Date(Date.UTC(year-1,month,0)).getUTCDate();
-  return new Date(Date.UTC(year-1,month-1,Math.min(day,lastDay)-1)).toISOString().slice(0,10);
+  return new Date(Date.UTC(year-1,month-1,Math.min(day,lastDay)+1)).toISOString().slice(0,10);
 }
 function displayDate(value) {return value?value.slice(8,10)+'/'+value.slice(5,7)+'/'+value.slice(0,4):'—';}
 function updateFilterHint() {
   const until=$('until-input').value;
-  $('from-date').textContent=displayDate(dateMinusYear(until));
+  $('from-date').textContent=displayDate(periodStart(until));
   const pending=!!state.activeUntil && until!==state.activeUntil;
   $('filter-hint').classList.toggle('pending',pending);
-  $('filter-hint').textContent=pending?'Pulsá Actualizar para aplicar el nuevo período.':'Desde el día anterior a la misma fecha del año previo, hasta la fecha elegida inclusive.';
+  $('filter-hint').textContent=pending?'Pulsá Actualizar para aplicar el nuevo período.':'Un año completo hasta la fecha elegida, con ambas fechas incluidas.';
   updateExportControl();
 }
 function visibleColumns() {
@@ -227,7 +227,7 @@ $('export').addEventListener('click',async()=>{
   state.exportStarting=true;updateExportControl();$('error').hidden=true;$('download').hidden=true;
   $('export-panel').hidden=false;$('export-title').textContent='Preparando Excel completo…';
   $('export-detail').textContent=number.format(state.total)+' registros · '+visibleColumns().length+' columnas · '+
-    displayDate(dateMinusYear(state.activeUntil))+' al '+displayDate(state.activeUntil);
+    displayDate(periodStart(state.activeUntil))+' al '+displayDate(state.activeUntil);
   $('export-progress').removeAttribute('value');
   $('export').querySelector('span').textContent='Generando Excel…';
   try {
@@ -242,7 +242,7 @@ $('export').addEventListener('click',async()=>{
     $('download').href=state.downloadUrl;$('download').download='COLUN_CuadroResultado.xlsx';
     $('download').hidden=false;$('export-progress').value=100;$('export-title').textContent='Tu Excel está listo';
     $('export-detail').textContent=number.format(state.total)+' registros · '+visibleColumns().length+' columnas · '+
-      displayDate(dateMinusYear(state.activeUntil))+' al '+displayDate(state.activeUntil)+' · '+number.format(Math.ceil(file.size/1024/1024))+' MB';
+      displayDate(periodStart(state.activeUntil))+' al '+displayDate(state.activeUntil)+' · '+number.format(Math.ceil(file.size/1024/1024))+' MB';
     $('download').click();
   } catch(err) {$('export-title').textContent='No se pudo crear el Excel';error(err.message);}
   finally {state.exportStarting=false;updateExportControl();$('export').querySelector('span').textContent='Exportar a Excel';}
