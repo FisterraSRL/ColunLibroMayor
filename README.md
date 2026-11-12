@@ -1,6 +1,6 @@
 # COLUN · Libro Mayor
 
-Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` desde el día anterior a la misma fecha del año previo hasta la fecha elegida, con paginación de 100 filas y exportación a Excel del período y las columnas visibles.
+Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` durante el año completo que termina en la fecha elegida, con paginación de 100 filas y exportación a Excel del período y las columnas visibles.
 
 ## Despliegue en Vercel
 
@@ -24,7 +24,7 @@ La conexión usa TLS con verificación de certificado y transacciones de solo le
 
 ## Uso
 
-La página consulta el origen al abrirse con la fecha actual como **Fecha hasta**. **Fecha desde** es el día anterior a la misma fecha del año previo: por ejemplo, con **Fecha hasta** 01/01/2026, **Fecha desde** es 31/12/2024. Ambas fechas se incluyen. **Actualizar** aplica el período, vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
+La página consulta el origen al abrirse con la fecha actual como **Fecha hasta**. **Fecha desde** es el día posterior a la misma fecha del año previo: por ejemplo, con **Fecha hasta** 31/12/2026, **Fecha desde** es 01/01/2026. Ambas fechas se incluyen. **Actualizar** aplica el período, vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
 
 **Exportar a Excel** consulta PostgreSQL en una transacción de solo lectura y genera el XLSX como flujo ZIP64 directamente para la descarga. No usa Vercel Blob. Mantené la página abierta hasta que aparezca **Descargar Excel**; la generación puede tardar varios minutos para períodos grandes.
 
