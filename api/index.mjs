@@ -14,6 +14,7 @@ const SNAPSHOT_BATCH=10000;
 const EXCEL_LIMIT=1048575;
 const JOB_TTL=24*60*60*1000;
 const LEASE_MS=260000;
+const DATE_WHERE="fecha >= $1::date AND fecha < ($2::date + INTERVAL '1 day')";
 let pool;
 let cached;
 const pending=new Set();
@@ -45,22 +46,34 @@ async function transaction(fn,exporting=false){
   }
 }
 
-async function metadata(refresh=false){
-  if(cached && !refresh && Date.now()-cached.created<60000) return cached.data;
+export function periodFor(until){
+  if(typeof until!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(until)) throw new Error('INVALID_DATE');
+  const date=new Date(until+'T00:00:00Z');
+  if(Number.isNaN(date.getTime()) || date.toISOString().slice(0,10)!==until) throw new Error('INVALID_DATE');
+  const year=date.getUTCFullYear()-1,month=date.getUTCMonth(),day=date.getUTCDate();
+  const lastDay=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+  const from=new Date(Date.UTC(year,month,Math.min(day,lastDay))).toISOString().slice(0,10);
+  return {from,until};
+}
+function requestedPeriod(until){return periodFor(until || new Date().toISOString().slice(0,10));}
+
+async function metadata(refresh=false,until){
+  const period=requestedPeriod(until);
+  if(cached && cached.until===period.until && !refresh && Date.now()-cached.created<60000) return cached.data;
   const data=await transaction(async client=>{
     const columns=(await client.query('SELECT * FROM '+TABLE+' LIMIT 0')).fields.map(f=>f.name);
-    const total=Number((await client.query('SELECT count(*) AS total FROM '+TABLE)).rows[0].total);
-    return {columns,total,pageSize:PAGE_SIZE,pages:Math.max(1,Math.ceil(total/PAGE_SIZE)),table:TABLE,checkedAt:new Date().toISOString()};
+    const total=Number((await client.query('SELECT count(*) AS total FROM '+TABLE+' WHERE '+DATE_WHERE,[period.from,period.until])).rows[0].total);
+    return {...period,columns,total,pageSize:PAGE_SIZE,pages:Math.max(1,Math.ceil(total/PAGE_SIZE)),table:TABLE,checkedAt:new Date().toISOString()};
   });
-  cached={created:Date.now(),data};return data;
+  cached={until:period.until,created:Date.now(),data};return data;
 }
 
-async function pageRows(page){
-  const meta=await metadata();
+async function pageRows(page,until){
+  const meta=await metadata(false,until);
   if(!Number.isSafeInteger(page) || page<1 || page>meta.pages) throw new Error('INVALID_PAGE');
   const rows=await transaction(async client=>(await client.query({
-    text:'SELECT * FROM '+TABLE+' ORDER BY ctid LIMIT $1 OFFSET $2',
-    values:[PAGE_SIZE,(page-1)*PAGE_SIZE],rowMode:'array'})).rows);
+    text:'SELECT * FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY ctid LIMIT $3 OFFSET $4',
+    values:[meta.from,meta.until,PAGE_SIZE,(page-1)*PAGE_SIZE],rowMode:'array'})).rows);
   return {...meta,page,rows};
 }
 
@@ -78,7 +91,12 @@ async function saveState(job,etag){
     contentType:'application/json',cacheControlMaxAge:60});
 }
 
-async function startExport(){
+async function startExport(until,columns){
+  const meta=await metadata(false,until);
+  const selected=columns===undefined?meta.columns:columns;
+  if(!Array.isArray(selected) || !selected.length || selected.length>meta.columns.length ||
+    new Set(selected).size!==selected.length || selected.some(name=>!meta.columns.includes(name))) throw new Error('INVALID_COLUMNS');
+  const requestKey=JSON.stringify({until:meta.until,columns:selected});
   const path='colun/current-export.json';
   const pointer=await get(path,{access:'private',useCache:false});
   let previousJob;
@@ -87,11 +105,13 @@ async function startExport(){
     const state=await readState(current.id);
     previousJob=state?.job;
     if(state && state.job.expiresAt>Date.now() && ['queued','running'].includes(state.job.status)){
+      if(state.job.requestKey!==requestKey) throw new Error('EXPORT_BUSY');
       scheduleStage(current.id);return state.job;
     }
   }
   const id=randomBytes(16).toString('hex');
   const job={id,status:'queued',phase:'reading',processed:0,captured:0,total:0,
+    ...{from:meta.from,until:meta.until,columns:selected,requestKey},
     createdAt:new Date().toISOString(),expiresAt:Date.now()+JOB_TTL};
   await saveState(job);
   try{
@@ -102,7 +122,7 @@ async function startExport(){
       const latest=await get(path,{access:'private',useCache:false});
       const active=await new Response(latest.stream).json();
       const state=await readState(active.id);
-      if(state){scheduleStage(active.id);return state.job;}
+      if(state){if(state.job.requestKey!==requestKey) throw new Error('EXPORT_BUSY');scheduleStage(active.id);return state.job;}
     }
     throw e;
   }
@@ -114,7 +134,7 @@ async function startExport(){
   scheduleStage(id);return job;
 }
 function publicState(job){
-  const {parts,file,leaseUntil,...safe}=job;return safe;
+  const {parts,file,leaseUntil,requestKey,...safe}=job;return safe;
 }
 
 async function claim(id){
@@ -146,10 +166,11 @@ async function runStage(id){
     if(job.phase==='reading'){
       const parts=[];let processed=0;let lines=[];
       await transaction(async client=>{
-        job.columns=(await client.query('SELECT * FROM '+TABLE+' LIMIT 0')).fields.map(f=>f.name);
-        job.total=Number((await client.query('SELECT count(*) AS n FROM '+TABLE)).rows[0].n);
+        job.total=Number((await client.query('SELECT count(*) AS n FROM '+TABLE+' WHERE '+DATE_WHERE,[job.from,job.until])).rows[0].n);
         await update({total:job.total,columns:job.columns,processed:0});
-        const stream=client.query(new QueryStream('SELECT * FROM '+TABLE,[],{rowMode:'array',batchSize:2048}));
+        const selection=job.columns.map(name=>'"'+name.replaceAll('"','""')+'"').join(',');
+        const stream=client.query(new QueryStream('SELECT '+selection+' FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY ctid',
+          [job.from,job.until],{rowMode:'array',batchSize:2048}));
         const onAbort=()=>stream.destroy(abort.signal.reason);
         abort.signal.addEventListener('abort',onAbort,{once:true});
         const flush=async()=>{
@@ -272,18 +293,26 @@ function errorMessage(e){
   if(['55P03','57014'].includes(e.code)) return 'Finnegans está actualizando los datos. Esperá unos segundos y volvé a actualizar.';
   return 'No se pudo consultar PostgreSQL desde Vercel. Revisá la conexión y Seguridad IP de Finnegans.';
 }
+async function requestBody(req){
+  if(req.body!==undefined) return typeof req.body==='string'?JSON.parse(req.body):req.body;
+  const chunks=[];let size=0;
+  for await(const chunk of req){size+=chunk.length;if(size>16384) throw new Error('INVALID_REQUEST');chunks.push(chunk);}
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+}
 
 export default async function handler(req,res){
   const url=new URL(req.url,'https://'+(req.headers.host || 'localhost'));
   try{
     if(req.method==='GET' && url.pathname==='/api/health') return send(res,200,{ok:true,platform:'vercel',databaseConfigured:!!process.env.PGPASSWORD,exportsConfigured:!!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.BLOB_STORE_ID});
-    if(req.method==='GET' && url.pathname==='/api/metadata') return send(res,200,await metadata(url.searchParams.get('refresh')==='1'));
-    if(req.method==='GET' && url.pathname==='/api/rows') return send(res,200,await pageRows(Number(url.searchParams.get('page') || 1)));
+    if(req.method==='GET' && url.pathname==='/api/metadata') return send(res,200,await metadata(url.searchParams.get('refresh')==='1',url.searchParams.get('until')));
+    if(req.method==='GET' && url.pathname==='/api/rows') return send(res,200,await pageRows(Number(url.searchParams.get('page') || 1),url.searchParams.get('until')));
     if(req.method==='POST' && url.pathname==='/api/exports'){
       if(!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return send(res,503,{error:'Falta conectar el almacenamiento privado de exportaciones en Vercel.'});
       const origin=req.headers.origin;
       if(origin && new URL(origin).host!==req.headers.host) return send(res,403,{error:'Origen no permitido.'});
-      return send(res,202,publicState(await startExport()));
+      const body=await requestBody(req);
+      if(!body || typeof body!=='object' || Array.isArray(body)) throw new Error('INVALID_REQUEST');
+      return send(res,202,publicState(await startExport(body.until,body.columns)));
     }
     const match=url.pathname.match(/^\/api\/exports\/([a-f0-9]{32})(\/file)?$/);
     if(req.method==='GET' && match){
@@ -302,6 +331,10 @@ export default async function handler(req,res){
   }catch(e){
     console.error('COLUN API:',e.code || e.name);
     if(e.message==='INVALID_PAGE') return send(res,400,{error:'Número de página inválido.'});
+    if(e.message==='INVALID_DATE') return send(res,400,{error:'La fecha hasta no es válida.'});
+    if(e.message==='INVALID_COLUMNS') return send(res,400,{error:'Seleccioná al menos una columna válida para exportar.'});
+    if(e.message==='INVALID_REQUEST' || e instanceof SyntaxError) return send(res,400,{error:'La solicitud de exportación no es válida.'});
+    if(e.message==='EXPORT_BUSY') return send(res,409,{error:'Ya hay una exportación en curso. Esperá a que termine antes de cambiar el período o las columnas.'});
     if(!res.headersSent) send(res,503,{error:errorMessage(e)});
     else res.destroy();
   }
