@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const number = new Intl.NumberFormat('es-AR');
-const state = {page:1,pages:1,total:0,columns:[],busy:false,job:null};
+const state = {page:1,pages:1,total:0,columns:[],visibleColumns:new Set(),lastData:null,busy:false,job:null};
 const preferred = ['fecha','empresa','cuentacodigo','cuenta','documento','organizacion','saldomonedappal','moneda','dimension','dimensionvalor'];
 const titles = {fecha:'Fecha',empresa:'Empresa',cuentacodigo:'Código de cuenta',cuenta:'Cuenta contable',documento:'Documento',organizacion:'Organización',saldomonedappal:'Saldo · moneda principal',moneda:'Moneda',dimension:'Dimensión',dimensionvalor:'Valor de dimensión'};
 
@@ -24,13 +24,18 @@ function controls(busy) {
   $('first').disabled=$('prev').disabled=busy || state.page<=1;
   $('next').disabled=$('last').disabled=busy || state.page>=state.pages;
   $('page-input').disabled=busy || !state.columns.length;
-  $('column-jump').disabled=busy || !state.columns.length;
+  $('column-jump').disabled=busy || !state.visibleColumns.size;
   $('grid').setAttribute('aria-busy',String(busy));
   $('grid').classList.toggle('is-loading',busy);
   $('refresh').querySelector('span').textContent=busy?'Consultando…':'Actualizar';
 }
 
 function setMetadata(data) {
+  if(!state.columns.length) {
+    let saved;
+    try {saved=JSON.parse(localStorage.getItem('colun-visible-columns'));} catch {}
+    state.visibleColumns=new Set(Array.isArray(saved)?saved.filter(name=>data.columns.includes(name)):data.columns);
+  } else state.visibleColumns=new Set([...state.visibleColumns].filter(name=>data.columns.includes(name)));
   state.columns=data.columns;state.total=data.total;state.pages=data.pages;
   $('total').textContent=number.format(data.total);
   $('columns-count').textContent=number.format(data.columns.length);
@@ -39,14 +44,37 @@ function setMetadata(data) {
   const checked=new Date(data.checkedAt);
   $('checked-at').textContent='Última consulta · '+checked.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   $('checked-at').title=checked.toLocaleString('es-AR');
-  const selector=$('column-jump');selector.replaceChildren(new Option('Ir a una columna…',''));
-  for(const name of data.columns) selector.add(new Option(titles[name] || name,name));
+  const options=$('column-options');options.replaceChildren();
+  for(const name of data.columns) {
+    const label=document.createElement('label');label.className='column-option';
+    label.dataset.search=(name+' '+(titles[name] || '')).toLocaleLowerCase('es-AR');
+    const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.value=name;checkbox.checked=state.visibleColumns.has(name);
+    label.append(checkbox,document.createTextNode(titles[name] || name));
+    options.append(label);
+  }
+  updateColumnControls();
   $('export').disabled=!!state.job;
 }
 
+function updateColumnControls() {
+  $('visible-count').textContent=state.visibleColumns.size+' / '+state.columns.length;
+  const selector=$('column-jump');selector.replaceChildren(new Option('Ir a una columna…',''));
+  for(const name of state.columns) if(state.visibleColumns.has(name)) selector.add(new Option(titles[name] || name,name));
+  selector.disabled=state.busy || !state.visibleColumns.size;
+}
+
+function changeColumns(names) {
+  state.visibleColumns=new Set(names);
+  for(const checkbox of $('column-options').querySelectorAll('input')) checkbox.checked=state.visibleColumns.has(checkbox.value);
+  try {localStorage.setItem('colun-visible-columns',JSON.stringify([...state.visibleColumns]));} catch {}
+  updateColumnControls();
+  if(state.lastData) render(state.lastData);
+}
+
 function render(data) {
+  state.lastData=data;
   state.page=data.page;state.pages=data.pages;state.total=data.total;
-  const cols=[...preferred.filter(x=>data.columns.includes(x)),...data.columns.filter(x=>!preferred.includes(x))];
+  const cols=[...preferred.filter(x=>data.columns.includes(x) && state.visibleColumns.has(x)),...data.columns.filter(x=>!preferred.includes(x) && state.visibleColumns.has(x))];
   const indexes=cols.map(name=>data.columns.indexOf(name));
   const header=document.createElement('tr');
   const indexHeader=document.createElement('th');indexHeader.textContent='#';indexHeader.scope='col';header.append(indexHeader);
@@ -70,7 +98,9 @@ function render(data) {
     fragment.append(tr);
   });
   $('tbody').replaceChildren(fragment);
-  $('loading').hidden=true;$('table').hidden=data.rows.length===0;$('empty').hidden=data.rows.length!==0;
+  $('loading').hidden=true;$('table').hidden=data.rows.length===0 || !cols.length;
+  $('empty').hidden=data.rows.length!==0 || !cols.length;
+  $('no-columns').hidden=!!cols.length;
   $('page-label').textContent='Página '+number.format(data.page)+' de '+number.format(data.pages);
   $('page-input').value=data.page;
   const from=data.rows.length?(data.page-1)*50+1:0;const to=(data.page-1)*50+data.rows.length;
@@ -112,6 +142,21 @@ $('column-jump').addEventListener('change',event=>{
   const th=document.getElementById('col-'+event.target.value);
   $('grid').scrollTo({left:th.offsetLeft-56,behavior:'smooth'});
   th.classList.remove('flash');void th.offsetWidth;th.classList.add('flash');
+});
+$('column-options').addEventListener('change',event=>{
+  if(event.target.type!=='checkbox') return;
+  const names=new Set(state.visibleColumns);
+  if(event.target.checked) names.add(event.target.value);else names.delete(event.target.value);
+  changeColumns(names);
+});
+$('select-all-columns').addEventListener('click',()=>changeColumns(state.columns));
+$('clear-columns').addEventListener('click',()=>changeColumns([]));
+$('column-search').addEventListener('input',event=>{
+  const query=event.target.value.trim().toLocaleLowerCase('es-AR');
+  for(const option of $('column-options').children) option.hidden=!option.dataset.search.includes(query);
+});
+document.addEventListener('click',event=>{
+  if(!event.target.closest('#column-picker')) $('column-picker').open=false;
 });
 
 function showJob(job) {
