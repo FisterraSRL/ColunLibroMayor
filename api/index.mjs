@@ -14,7 +14,7 @@ const SNAPSHOT_BATCH=10000;
 const EXCEL_LIMIT=1048575;
 const JOB_TTL=24*60*60*1000;
 const LEASE_MS=260000;
-const DATE_WHERE="fecha >= $1::date AND fecha < ($2::date + INTERVAL '1 day')";
+const DATE_WHERE='fecha::date >= $1::date AND fecha::date <= $2::date';
 let pool;
 let cached;
 const pending=new Set();
