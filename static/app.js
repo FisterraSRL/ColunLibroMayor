@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const number = new Intl.NumberFormat('es-AR');
-const state = {page:1,pages:1,total:0,columns:[],visibleColumns:new Set(),lastData:null,activeUntil:null,busy:false,job:null,exportStarting:false};
+const state = {page:1,pages:1,total:0,columns:[],visibleColumns:new Set(),lastData:null,activeUntil:null,busy:false,job:null,exportStarting:false,downloadUrl:null};
 const preferred = ['fecha','empresa','cuentacodigo','cuenta','documento','organizacion','saldomonedappal','moneda','dimension','dimensionvalor'];
 const titles = {fecha:'Fecha',empresa:'Empresa',cuentacodigo:'Código de cuenta',cuenta:'Cuenta contable',documento:'Documento',organizacion:'Organización',saldomonedappal:'Saldo · moneda principal',moneda:'Moneda',dimension:'Dimensión',dimensionvalor:'Valor de dimensión'};
 
@@ -225,17 +225,30 @@ function schedulePoll(jobId,delay=2500) {
 }
 $('export').addEventListener('click',async()=>{
   state.exportStarting=true;updateExportControl();$('error').hidden=true;$('download').hidden=true;
+  $('export-panel').hidden=false;$('export-title').textContent='Preparando Excel completo…';
+  $('export-detail').textContent=number.format(state.total)+' registros · '+visibleColumns().length+' columnas · '+
+    displayDate(dateMinusYear(state.activeUntil))+' al '+displayDate(state.activeUntil);
+  $('export-progress').removeAttribute('value');
   $('export').querySelector('span').textContent='Generando Excel…';
   try {
-    const job=await api('/api/exports',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({until:state.activeUntil,columns:visibleColumns()})});
-    state.exportStarting=false;state.job=job.id;sessionStorage.setItem('colun-export',job.id);
-    showJob(job);updateExportControl();schedulePoll(job.id);
-  } catch(err) {state.exportStarting=false;error(err.message);updateExportControl();$('export').querySelector('span').textContent='Exportar a Excel';}
+    const path='/api/export-direct?until='+encodeURIComponent(state.activeUntil)+
+      '&columns='+encodeURIComponent(JSON.stringify(visibleColumns()));
+    const response=await fetch(path,{cache:'no-store'});
+    if(!response.ok){let data;try{data=await response.json();}catch{}throw new Error(data?.error || 'No se pudo generar el Excel. Volvé a intentar.');}
+    const file=await response.blob();
+    if(!file.size) throw new Error('El Excel llegó vacío. Volvé a intentar.');
+    if(state.downloadUrl) URL.revokeObjectURL(state.downloadUrl);
+    state.downloadUrl=URL.createObjectURL(file);
+    $('download').href=state.downloadUrl;$('download').download='COLUN_CuadroResultado.xlsx';
+    $('download').hidden=false;$('export-progress').value=100;$('export-title').textContent='Tu Excel está listo';
+    $('export-detail').textContent=number.format(state.total)+' registros · '+visibleColumns().length+' columnas · '+
+      displayDate(dateMinusYear(state.activeUntil))+' al '+displayDate(state.activeUntil)+' · '+number.format(Math.ceil(file.size/1024/1024))+' MB';
+    $('download').click();
+  } catch(err) {$('export-title').textContent='No se pudo crear el Excel';error(err.message);}
+  finally {state.exportStarting=false;updateExportControl();$('export').querySelector('span').textContent='Exportar a Excel';}
 });
 const today=new Date();
 $('until-input').value=[today.getFullYear(),String(today.getMonth()+1).padStart(2,'0'),String(today.getDate()).padStart(2,'0')].join('-');
 updateFilterHint();
 load();
-const previousExport=sessionStorage.getItem('colun-export');
-if(previousExport && /^[a-f0-9]{32}$/.test(previousExport)){state.job=previousExport;schedulePoll(previousExport,100);}
+sessionStorage.removeItem('colun-export');
