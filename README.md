@@ -1,6 +1,6 @@
 # COLUN · Libro Mayor
 
-Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` con paginación de 100 filas y exportación completa a Excel.
+Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` con un filtro móvil de 12 meses hasta la fecha elegida, paginación de 100 filas y exportación a Excel del período y las columnas visibles.
 
 ## Despliegue en Vercel
 
@@ -25,11 +25,11 @@ La conexión usa TLS con verificación de certificado y transacciones de solo le
 
 ## Uso
 
-La página consulta el origen al abrirse. **Actualizar** vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector de columnas permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
+La página consulta el origen al abrirse con la fecha actual como **Fecha hasta**. El rango incluye desde el mismo día del año anterior hasta la fecha elegida, inclusive. **Actualizar** aplica la fecha, vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
 
 **Exportar a Excel** prepara un snapshot consistente del origen en bloques comprimidos del almacenamiento privado y libera PostgreSQL antes de generar el archivo. Una segunda etapa escribe el XLSX como un flujo con ZIP64, sin archivos grandes en disco ni un proceso local permanente. El estado persistente permite continuar tras recargar la página. Mantené la página abierta hasta ver **Descargar Excel**.
 
-La exportación incluye todas las filas y columnas. Los valores se escriben como texto para conservar identificadores, ceros iniciales, fechas, importes y fórmulas literales. Si se supera el límite de filas de una hoja, se crean hojas adicionales. Los campos que excedan el límite de caracteres de Excel producen un error explícito y no se truncan.
+La exportación incluye todas las filas del período, en todas las páginas, y solo las columnas visibles en la grilla, en el mismo orden. Los valores se escriben como texto para conservar identificadores, ceros iniciales, fechas, importes y fórmulas literales. Si se supera el límite de filas de una hoja, se crean hojas adicionales. Los campos que excedan el límite de caracteres de Excel producen un error explícito y no se truncan.
 
 Solo se ejecuta una exportación completa a la vez. Se conserva el último archivo; comenzar una nueva exportación reemplaza los archivos temporales anteriores. Los enlaces vencen a las 24 horas. El consumo de Blob y transferencias está sujeto a las cuotas del plan de Vercel.
 
