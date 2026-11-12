@@ -8,8 +8,7 @@ El proyecto utiliza Node.js 22, una interfaz estática y una única API del serv
 
 1. Importar `FisterraSRL/ColunLibroMayor` en Vercel y utilizar la rama `main`.
 2. Guardar `PGPASSWORD` como secreto del entorno Production. Las credenciales no van en el repositorio ni en el navegador.
-3. Conectar un almacén Vercel Blob **privado**, en `iad1`, al mismo proyecto. La conexión proporciona `BLOB_STORE_ID` y utiliza la identidad OIDC de Vercel; también admite `BLOB_READ_WRITE_TOKEN` cuando la conexión lo requiera.
-4. Desplegar y comprobar `/api/health`, la grilla, Actualizar y Exportar a Excel.
+3. Desplegar y comprobar `/api/health`, la grilla, Actualizar y Exportar a Excel. La exportación directa no requiere Vercel Blob.
 
 Valores de PostgreSQL configurables en el servidor:
 
@@ -27,11 +26,11 @@ La conexión usa TLS con verificación de certificado y transacciones de solo le
 
 La página consulta el origen al abrirse con la fecha actual como **Fecha hasta**. El rango incluye desde el mismo día del año anterior hasta la fecha elegida, inclusive. **Actualizar** aplica la fecha, vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
 
-**Exportar a Excel** prepara un snapshot consistente del origen en bloques comprimidos del almacenamiento privado y libera PostgreSQL antes de generar el archivo. Una segunda etapa escribe el XLSX como un flujo con ZIP64, sin archivos grandes en disco ni un proceso local permanente. El estado persistente permite continuar tras recargar la página. Mantené la página abierta hasta ver **Descargar Excel**.
+**Exportar a Excel** consulta PostgreSQL en una transacción de solo lectura y genera el XLSX como flujo ZIP64 directamente para la descarga. No usa Vercel Blob. Mantené la página abierta hasta que aparezca **Descargar Excel**; la generación puede tardar varios minutos para períodos grandes.
 
 La exportación incluye todas las filas del período, en todas las páginas, y solo las columnas visibles en la grilla, en el mismo orden. Los valores se escriben como texto para conservar identificadores, ceros iniciales, fechas, importes y fórmulas literales. Si se supera el límite de filas de una hoja, se crean hojas adicionales. Los campos que excedan el límite de caracteres de Excel producen un error explícito y no se truncan.
 
-Solo se ejecuta una exportación completa a la vez. Se conserva el último archivo; comenzar una nueva exportación reemplaza los archivos temporales anteriores. Los enlaces vencen a las 24 horas. El consumo de Blob y transferencias está sujeto a las cuotas del plan de Vercel.
+El archivo preparado permanece disponible en la pestaña actual mientras no se recargue la página. La función de Vercel dispone de hasta 300 segundos para completar la descarga.
 
 ## Acceso
 
