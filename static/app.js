@@ -22,7 +22,7 @@ function dateMinusYear(value) {
   const [year,month,day]=value.split('-').map(Number);
   if(!year || !month || !day) return null;
   const lastDay=new Date(Date.UTC(year-1,month,0)).getUTCDate();
-  return [year-1,String(month).padStart(2,'0'),String(Math.min(day,lastDay)).padStart(2,'0')].join('-');
+  return new Date(Date.UTC(year-1,month-1,Math.min(day,lastDay)-1)).toISOString().slice(0,10);
 }
 function displayDate(value) {return value?value.slice(8,10)+'/'+value.slice(5,7)+'/'+value.slice(0,4):'—';}
 function updateFilterHint() {
@@ -30,7 +30,7 @@ function updateFilterHint() {
   $('from-date').textContent=displayDate(dateMinusYear(until));
   const pending=!!state.activeUntil && until!==state.activeUntil;
   $('filter-hint').classList.toggle('pending',pending);
-  $('filter-hint').textContent=pending?'Pulsá Actualizar para aplicar el nuevo período.':'Se muestran los 12 meses anteriores, hasta el día elegido inclusive.';
+  $('filter-hint').textContent=pending?'Pulsá Actualizar para aplicar el nuevo período.':'Desde el día anterior a la misma fecha del año previo, hasta la fecha elegida inclusive.';
   updateExportControl();
 }
 function visibleColumns() {
