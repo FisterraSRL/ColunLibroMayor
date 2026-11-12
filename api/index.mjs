@@ -285,6 +285,29 @@ export function createXlsxStream(columns,total,source,onProgress=async()=>{},she
   return {stream:zip,completion};
 }
 
+async function directExport(res,until,columns){
+  const meta=await metadata(false,until);
+  if(!Array.isArray(columns) || !columns.length || columns.length>meta.columns.length ||
+    new Set(columns).size!==columns.length || columns.some(name=>!meta.columns.includes(name))) throw new Error('INVALID_COLUMNS');
+  await transaction(async client=>{
+    const total=Number((await client.query('SELECT count(*) AS n FROM '+TABLE+' WHERE '+DATE_WHERE,
+      [meta.from,meta.until])).rows[0].n);
+    const selection=columns.map(name=>'"'+name.replaceAll('"','""')+'"').join(',');
+    const rows=client.query(new QueryStream('SELECT '+selection+' FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY ctid',
+      [meta.from,meta.until],{rowMode:'array',batchSize:2048}));
+    const book=createXlsxStream(columns,total,rows);
+    const onClose=()=>{if(!res.writableFinished){rows.destroy();book.stream.destroy(new Error('Download interrupted'));}};
+    res.once('close',onClose);
+    try{
+      res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition':'attachment; filename="COLUN_CuadroResultado.xlsx"',
+        'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+      book.stream.pipe(res);
+      await book.completion;
+    }finally{res.off('close',onClose);rows.destroy();}
+  },true);
+}
+
 function send(res,status,data){res.writeHead(status,jsonHeaders);res.end(JSON.stringify(data));}
 function errorMessage(e){
   if(e.message==='DB_NOT_CONFIGURED') return 'Falta configurar la conexión a PostgreSQL en Vercel.';
@@ -306,6 +329,11 @@ export default async function handler(req,res){
     if(req.method==='GET' && url.pathname==='/api/health') return send(res,200,{ok:true,platform:'vercel',databaseConfigured:!!process.env.PGPASSWORD,exportsConfigured:!!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.BLOB_STORE_ID});
     if(req.method==='GET' && url.pathname==='/api/metadata') return send(res,200,await metadata(url.searchParams.get('refresh')==='1',url.searchParams.get('until')));
     if(req.method==='GET' && url.pathname==='/api/rows') return send(res,200,await pageRows(Number(url.searchParams.get('page') || 1),url.searchParams.get('until')));
+    if(req.method==='GET' && url.pathname==='/api/export-direct'){
+      let columns;
+      try{columns=JSON.parse(url.searchParams.get('columns') || 'null');}catch{throw new Error('INVALID_COLUMNS');}
+      return await directExport(res,url.searchParams.get('until'),columns);
+    }
     if(req.method==='POST' && url.pathname==='/api/exports'){
       if(!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return send(res,503,{error:'Falta conectar el almacenamiento privado de exportaciones en Vercel.'});
       const origin=req.headers.origin;
