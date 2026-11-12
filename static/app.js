@@ -87,7 +87,7 @@ function render(data) {
   const fragment=document.createDocumentFragment();
   data.rows.forEach((values,index)=>{
     const tr=document.createElement('tr');
-    const rowNum=document.createElement('td');rowNum.textContent=number.format((data.page-1)*50+index+1);tr.append(rowNum);
+    const rowNum=document.createElement('td');rowNum.textContent=number.format((data.page-1)*data.pageSize+index+1);tr.append(rowNum);
     for(let col=0;col<cols.length;col++) {
       const td=document.createElement('td');const value=values[indexes[col]];
       if(value===null) {td.textContent='—';td.className='null';td.title='NULL';}
@@ -103,7 +103,7 @@ function render(data) {
   $('no-columns').hidden=!!cols.length;
   $('page-label').textContent='Página '+number.format(data.page)+' de '+number.format(data.pages);
   $('page-input').value=data.page;
-  const from=data.rows.length?(data.page-1)*50+1:0;const to=(data.page-1)*50+data.rows.length;
+  const from=data.rows.length?(data.page-1)*data.pageSize+1:0;const to=(data.page-1)*data.pageSize+data.rows.length;
   $('range').replaceChildren('Mostrando ');
   const range=document.createElement('strong');range.textContent=number.format(from)+'–'+number.format(to);$('range').append(range,' de '+number.format(data.total)+' registros');
   $('grid').scrollTop=0;
