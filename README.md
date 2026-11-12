@@ -1,6 +1,6 @@
 # COLUN · Libro Mayor
 
-Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` con paginación de 50 filas y exportación completa a Excel.
+Página independiente, sin login propio, preparada para abrirse mediante un enlace externo desde Finnegans. Consulta `public.colun_colun_cuadroresultado` con paginación de 100 filas y exportación completa a Excel.
 
 ## Despliegue en Vercel
 
@@ -25,7 +25,7 @@ La conexión usa TLS con verificación de certificado y transacciones de solo le
 
 ## Uso
 
-La página consulta el origen al abrirse. **Actualizar** vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector permite saltar horizontalmente a una columna. Se puede navegar directamente a cualquier página.
+La página consulta el origen al abrirse. **Actualizar** vuelve a contar los registros y muestra la primera página. Todas las columnas están disponibles; el selector de columnas permite elegir cuáles aparecen en la grilla y conserva la selección en este navegador. También se puede saltar horizontalmente a una columna visible y navegar directamente a cualquier página.
 
 **Exportar a Excel** prepara un snapshot consistente del origen en bloques comprimidos del almacenamiento privado y libera PostgreSQL antes de generar el archivo. Una segunda etapa escribe el XLSX como un flujo con ZIP64, sin archivos grandes en disco ni un proceso local permanente. El estado persistente permite continuar tras recargar la página. Mantené la página abierta hasta ver **Descargar Excel**.
 
