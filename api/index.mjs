@@ -52,7 +52,7 @@ export function periodFor(until){
   if(Number.isNaN(date.getTime()) || date.toISOString().slice(0,10)!==until) throw new Error('INVALID_DATE');
   const year=date.getUTCFullYear()-1,month=date.getUTCMonth(),day=date.getUTCDate();
   const lastDay=new Date(Date.UTC(year,month+1,0)).getUTCDate();
-  const from=new Date(Date.UTC(year,month,Math.min(day,lastDay))).toISOString().slice(0,10);
+  const from=new Date(Date.UTC(year,month,Math.min(day,lastDay)-1)).toISOString().slice(0,10);
   return {from,until};
 }
 function requestedPeriod(until){return periodFor(until || new Date().toISOString().slice(0,10));}
