@@ -329,7 +329,8 @@ export default async function handler(req,res){
     }
     send(res,404,{error:'Recurso no encontrado.'});
   }catch(e){
-    console.error('COLUN API:',e.code || e.name);
+    const diagnostic=String(e.message || '').replace(/https?:\/\/\S+/g,'[URL]').slice(0,240);
+    console.error('COLUN API:',url.pathname,e.code || e.name,diagnostic);
     if(e.message==='INVALID_PAGE') return send(res,400,{error:'Número de página inválido.'});
     if(e.message==='INVALID_DATE') return send(res,400,{error:'La fecha hasta no es válida.'});
     if(e.message==='INVALID_COLUMNS') return send(res,400,{error:'Seleccioná al menos una columna válida para exportar.'});
