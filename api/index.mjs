@@ -9,7 +9,7 @@ import {put,get,del,BlobPreconditionFailedError} from '@vercel/blob';
 import {waitUntil,attachDatabasePool} from '@vercel/functions';
 
 const TABLE='public.colun_colun_cuadroresultado';
-const PAGE_SIZE=50;
+const PAGE_SIZE=100;
 const SNAPSHOT_BATCH=10000;
 const EXCEL_LIMIT=1048575;
 const JOB_TTL=24*60*60*1000;
