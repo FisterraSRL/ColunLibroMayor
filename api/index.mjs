@@ -98,7 +98,7 @@ async function startExport(until,columns){
     new Set(selected).size!==selected.length || selected.some(name=>!meta.columns.includes(name))) throw new Error('INVALID_COLUMNS');
   const requestKey=JSON.stringify({until:meta.until,columns:selected});
   const path='colun/current-export.json';
-  const pointer=await get(path,{access:'private',useCache:false});
+  const pointer=await get(path,{access:'private',useCache:false,headers:{'Accept-Encoding':'identity'}});
   let previousJob;
   if(pointer?.stream){
     const current=await new Response(pointer.stream).json();
@@ -116,10 +116,10 @@ async function startExport(until,columns){
   await saveState(job);
   try{
     await put(path,JSON.stringify({id}),{access:'private',addRandomSuffix:false,
-      allowOverwrite:!!pointer,...(pointer?{ifMatch:pointer.blob.etag}:{}),contentType:'application/json',cacheControlMaxAge:60});
+      allowOverwrite:!!pointer,...(pointer?{ifMatch:pointer.blob.etag.replace(/^W\//,'')}:{}),contentType:'application/json',cacheControlMaxAge:60});
   }catch(e){
     if(e instanceof BlobPreconditionFailedError){
-      const latest=await get(path,{access:'private',useCache:false});
+      const latest=await get(path,{access:'private',useCache:false,headers:{'Accept-Encoding':'identity'}});
       const active=await new Response(latest.stream).json();
       const state=await readState(active.id);
       if(state){if(state.job.requestKey!==requestKey) throw new Error('EXPORT_BUSY');scheduleStage(active.id);return state.job;}
@@ -335,7 +335,9 @@ export default async function handler(req,res){
     if(e.message==='INVALID_COLUMNS') return send(res,400,{error:'Seleccioná al menos una columna válida para exportar.'});
     if(e.message==='INVALID_REQUEST' || e instanceof SyntaxError) return send(res,400,{error:'La solicitud de exportación no es válida.'});
     if(e.message==='EXPORT_BUSY') return send(res,409,{error:'Ya hay una exportación en curso. Esperá a que termine antes de cambiar el período o las columnas.'});
-    if(!res.headersSent) send(res,503,{error:errorMessage(e)});
+    if(!res.headersSent) send(res,503,{error:url.pathname.startsWith('/api/exports')
+      ? 'No se pudo preparar la exportación. Volvé a intentar en unos segundos.'
+      : errorMessage(e)});
     else res.destroy();
   }
 }
