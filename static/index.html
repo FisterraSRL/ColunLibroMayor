@@ -6,7 +6,7 @@
   <meta name="description" content="Consulta del cuadro de resultado COLUN. Datos en vivo de Finnegans, 100 registros por página y exportación completa a Excel.">
   <title>COLUN · Cuadro de resultado</title>
   <link rel="icon" type="image/png" href="/colun-logo.png">
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script><script src="/analysis.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -22,12 +22,17 @@
         <button id="export" class="button primary" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg><span>Exportar a Excel</span></button>
       </div>
     </section>
+    <nav class="view-tabs" role="tablist" aria-label="Vistas del cuadro de resultado">
+      <button id="tab-grid" type="button" role="tab" aria-selected="true" aria-controls="grid-view">Grilla</button>
+      <button id="tab-analysis" type="button" role="tab" aria-selected="false" aria-controls="analysis-view">Análisis</button>
+    </nav>
     <section class="date-filter" aria-label="Filtro de fechas">
       <span class="filter-title">PERÍODO</span>
       <label for="until-input">Fecha hasta <input id="until-input" type="date" required></label>
       <span class="filter-from">Fecha desde <strong id="from-date">—</strong></span>
     <span id="filter-hint" class="filter-hint">Un año completo hasta la fecha elegida, con ambas fechas incluidas.</span>
     </section>
+    <div id="grid-view" role="tabpanel" aria-labelledby="tab-grid">
     <section class="metrics" aria-label="Resumen de la tabla">
       <div class="metric"><div class="metric-label">REGISTROS DEL PERÍODO<span class="metric-icon">↗</span></div><div id="total" class="metric-value">—</div><div class="metric-note">Todas las filas del rango elegido</div></div>
       <div class="metric"><div class="metric-label">COLUMNAS DISPONIBLES<span class="metric-icon columns-icon">▥</span></div><div id="columns-count" class="metric-value">—</div><div class="metric-note">Todos los campos del dataset</div></div>
@@ -50,6 +55,21 @@
         <div id="empty" class="empty" hidden><strong>No hay registros en este período</strong><p>Elegí otra fecha hasta y pulsá Actualizar.</p></div>
       </div>
       <div class="pagination"><span id="range" class="range" role="status" aria-live="polite">Esperando resultados…</span><div class="page-controls"><span class="page-size">100 por página</span><button id="first" class="icon-button" aria-label="Primera página" disabled>«</button><button id="prev" class="icon-button" aria-label="Página anterior" disabled>‹</button><form id="page-form"><label for="page-input">Página</label><input id="page-input" type="number" min="1" value="1" disabled aria-label="Número de página"><span id="pages">de —</span></form><button id="next" class="icon-button" aria-label="Página siguiente" disabled>›</button><button id="last" class="icon-button" aria-label="Última página" disabled>»</button></div></div>
+    </section>
+    </div>
+    <section id="analysis-view" class="analysis-view" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+      <div class="analysis-toolbar">
+        <div><h2>Análisis por cuenta y empresa</h2><p>Filas: cuentaraman → cuenta · Columnas: empresas · Saldo = Debe − Haber</p></div>
+        <label for="analysis-dimension">Valor de dimensión <select id="analysis-dimension" disabled><option value="all">Todos los valores</option></select></label>
+      </div>
+      <div id="analysis-error" class="error" role="alert" hidden></div>
+      <div id="analysis-summary" class="analysis-summary" role="status">Elegí la solapa para consultar el análisis.</div>
+      <div id="analysis-grid" class="grid analysis-grid" role="region" tabindex="0" aria-label="Análisis por cuenta y empresa" aria-busy="false">
+        <table id="analysis-table" hidden><thead id="analysis-head"></thead><tbody id="analysis-body"></tbody></table>
+        <div id="analysis-loading" class="loading" hidden><span class="spinner"></span><strong>Consultando análisis</strong><span>Resumiendo los movimientos del período…</span></div>
+        <div id="analysis-empty" class="empty" hidden>No hay registros para este período y valor de dimensión.</div>
+      </div>
+      <div class="pagination"><span id="analysis-range" class="range">Esperando resultados…</span><div class="page-controls"><span class="page-size">100 cuentas por página</span><button id="analysis-first" class="icon-button" aria-label="Primera página de análisis" disabled>«</button><button id="analysis-prev" class="icon-button" aria-label="Página anterior de análisis" disabled>‹</button><span id="analysis-page">Página —</span><button id="analysis-next" class="icon-button" aria-label="Página siguiente de análisis" disabled>›</button><button id="analysis-last" class="icon-button" aria-label="Última página de análisis" disabled>»</button></div></div>
     </section>
     <footer><span><span class="footer-dot"></span>Origen: <code>public.colun_colun_cuadroresultado</code></span><span>Consulta de solo lectura<span class="help-divider">·</span>Importes y fechas según el origen</span></footer>
   </main>

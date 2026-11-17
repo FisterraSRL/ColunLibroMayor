@@ -28,7 +28,8 @@ function displayDate(value) {return value?value.slice(8,10)+'/'+value.slice(5,7)
 function updateFilterHint() {
   const until=$('until-input').value;
   $('from-date').textContent=displayDate(periodStart(until));
-  const pending=!!state.activeUntil && until!==state.activeUntil;
+  const appliedUntil=window.ColunAnalysis?.active?window.ColunAnalysis.until:state.activeUntil;
+  const pending=!!appliedUntil && until!==appliedUntil;
   $('filter-hint').classList.toggle('pending',pending);
   $('filter-hint').textContent=pending?'Pulsá Actualizar para aplicar el nuevo período.':'Un año completo hasta la fecha elegida, con ambas fechas incluidas.';
   updateExportControl();
@@ -43,14 +44,14 @@ function updateExportControl() {
 }
 function controls(busy) {
   state.busy=busy;
-  $('refresh').disabled=busy;
+  if(!window.ColunAnalysis?.active) $('refresh').disabled=busy;
   $('first').disabled=$('prev').disabled=busy || state.page<=1;
   $('next').disabled=$('last').disabled=busy || state.page>=state.pages;
   $('page-input').disabled=busy || !state.columns.length;
   $('column-jump').disabled=busy || !state.visibleColumns.size;
   $('grid').setAttribute('aria-busy',String(busy));
   $('grid').classList.toggle('is-loading',busy);
-  $('refresh').querySelector('span').textContent=busy?'Consultando…':'Actualizar';
+  if(!window.ColunAnalysis?.active) $('refresh').querySelector('span').textContent=busy?'Consultando…':'Actualizar';
   updateExportControl();
 }
 
@@ -157,7 +158,7 @@ async function load(page=1,refresh=false) {
   }
 }
 
-$('refresh').addEventListener('click',()=>load(1,true));
+$('refresh').addEventListener('click',()=>window.ColunAnalysis?.active?window.ColunAnalysis.refresh():load(1,true));
 $('retry').addEventListener('click',()=>load(1,true));
 $('until-input').addEventListener('input',updateFilterHint);
 $('until-input').addEventListener('change',updateFilterHint);
