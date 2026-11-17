@@ -7,6 +7,7 @@ import pg from 'pg';
 import QueryStream from 'pg-query-stream';
 import {put,get,del,BlobPreconditionFailedError} from '@vercel/blob';
 import {waitUntil,attachDatabasePool} from '@vercel/functions';
+import {createPivotXlsxStream} from './pivot-xlsx.mjs';
 
 const TABLE='public.colun_colun_cuadroresultado';
 const PAGE_SIZE=100;
@@ -131,6 +132,27 @@ async function analysisRows(page,until,dimension){
   });
 }
 
+async function analysisDetail(page,until,dimension,branch,account,company){
+  if(!Number.isSafeInteger(page) || page<1) throw new Error('INVALID_PAGE');
+  for(const value of [branch,account,company])
+    if(value!==null && (typeof value!=='string' || value.length>1024)) throw new Error('INVALID_REQUEST');
+  const period=requestedPeriod(until);
+  const filter=analysisFilter(period,dimension);
+  const start=filter.values.length+1;
+  const where=filter.where+' AND cuentaraman IS NOT DISTINCT FROM $'+start+
+    ' AND cuenta IS NOT DISTINCT FROM $'+(start+1)+' AND empresa IS NOT DISTINCT FROM $'+(start+2);
+  const values=[...filter.values,branch,account,company];
+  return transaction(async client=>{
+    const total=Number((await client.query('SELECT count(*) AS total FROM '+TABLE+' WHERE '+where,values)).rows[0].total);
+    const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+    if(page>pages) throw new Error('INVALID_PAGE');
+    const rows=(await client.query('SELECT fecha,documento,descripcion,debemonedappal,habermonedappal,dimensionvalor '+
+      'FROM '+TABLE+' WHERE '+where+' ORDER BY fecha,ctid LIMIT $'+(start+3)+' OFFSET $'+(start+4),
+      [...values,PAGE_SIZE,(page-1)*PAGE_SIZE])).rows;
+    return {...period,page,pages,total,pageSize:PAGE_SIZE,rows};
+  });
+}
+
 function jobPath(id){return 'colun/exports/'+id+'/state.json';}
 async function readState(id){
   // Keep the storage ETag stable for conditional writes: CDN compression can
@@ -145,12 +167,13 @@ async function saveState(job,etag){
     contentType:'application/json',cacheControlMaxAge:60});
 }
 
-async function startExport(until,columns){
+async function startExport(until,columns,kind='grid',dimension){
   const meta=await metadata(false,until);
-  const selected=columns===undefined?meta.columns:columns;
-  if(!Array.isArray(selected) || !selected.length || selected.length>meta.columns.length ||
-    new Set(selected).size!==selected.length || selected.some(name=>!meta.columns.includes(name))) throw new Error('INVALID_COLUMNS');
-  const requestKey=JSON.stringify({until:meta.until,columns:selected});
+  if(kind==='analysis') analysisFilter(meta,dimension);
+  const selected=kind==='analysis'?[...meta.columns,'Saldo']:columns===undefined?meta.columns:columns;
+  if(kind==='grid' && (!Array.isArray(selected) || !selected.length || selected.length>meta.columns.length ||
+    new Set(selected).size!==selected.length || selected.some(name=>!meta.columns.includes(name)))) throw new Error('INVALID_COLUMNS');
+  const requestKey=JSON.stringify({kind,until:meta.until,columns:selected,dimension});
   const path='colun/current-export.json';
   const pointer=await get(path,{access:'private',useCache:false,headers:{'Accept-Encoding':'identity'}});
   let previousJob;
@@ -165,7 +188,7 @@ async function startExport(until,columns){
   }
   const id=randomBytes(16).toString('hex');
   const job={id,status:'queued',phase:'reading',processed:0,captured:0,total:0,
-    ...{from:meta.from,until:meta.until,columns:selected,requestKey},
+    ...{kind,dimension,from:meta.from,until:meta.until,columns:selected,requestKey},
     createdAt:new Date().toISOString(),expiresAt:Date.now()+JOB_TTL};
   await saveState(job);
   try{
@@ -188,7 +211,7 @@ async function startExport(until,columns){
   scheduleStage(id);return job;
 }
 function publicState(job){
-  const {parts,file,leaseUntil,requestKey,...safe}=job;return safe;
+  const {parts,file,leaseUntil,requestKey,axisItems,...safe}=job;return safe;
 }
 
 async function claim(id){
@@ -220,11 +243,17 @@ async function runStage(id){
     if(job.phase==='reading'){
       const parts=[];let processed=0;let lines=[];
       await transaction(async client=>{
-        job.total=Number((await client.query('SELECT count(*) AS n FROM '+TABLE+' WHERE '+DATE_WHERE,[job.from,job.until])).rows[0].n);
+        const filter=job.kind==='analysis'?analysisFilter(job,job.dimension):{where:DATE_WHERE,values:[job.from,job.until]};
+        job.total=Number((await client.query('SELECT count(*) AS n FROM '+TABLE+' WHERE '+filter.where,filter.values)).rows[0].n);
         await update({total:job.total,columns:job.columns,processed:0});
-        const selection=job.columns.map(name=>'"'+name.replaceAll('"','""')+'"').join(',');
-        const stream=client.query(new QueryStream('SELECT '+selection+' FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY ctid',
-          [job.from,job.until],{rowMode:'array',batchSize:2048}));
+        const selection=job.columns.filter(name=>name!=='Saldo').map(name=>'"'+name.replaceAll('"','""')+'"').join(',')+
+          (job.kind==='analysis'?',(COALESCE(debemonedappal::numeric,0)-COALESCE(habermonedappal::numeric,0)) AS "Saldo"':'');
+        const stream=client.query(new QueryStream('SELECT '+selection+' FROM '+TABLE+' WHERE '+filter.where+' ORDER BY ctid',
+          filter.values,{rowMode:'array',batchSize:2048}));
+        const axisNames=['cuentaraman','cuenta','empresa','dimensionvalor'];
+        const axisItems=Object.fromEntries(axisNames.map(name=>[name,[]]));
+        const axisSeen=Object.fromEntries(axisNames.map(name=>[name,new Set()]));
+        const axisIndices=axisNames.map(name=>job.columns.indexOf(name));
         const onAbort=()=>stream.destroy(abort.signal.reason);
         abort.signal.addEventListener('abort',onAbort,{once:true});
         const flush=async()=>{
@@ -235,31 +264,42 @@ async function runStage(id){
           parts.push(part.url);await update({captured:processed,parts:[...parts]});
         };
         try{
-          for await(const row of stream){lines.push(JSON.stringify(row));processed++;if(lines.length===SNAPSHOT_BATCH) await flush();}
+          for await(const row of stream){
+            if(job.kind==='analysis') axisNames.forEach((name,index)=>{
+              const value=row[axisIndices[index]]??null,key=JSON.stringify(value);
+              if(!axisSeen[name].has(key)){axisSeen[name].add(key);axisItems[name].push(value);}
+            });
+            lines.push(JSON.stringify(row));processed++;if(lines.length===SNAPSHOT_BATCH) await flush();
+          }
           await flush();
         }finally{abort.signal.removeEventListener('abort',onAbort);stream.destroy();}
         if(processed!==job.total) throw new Error('Snapshot count mismatch');
+        if(job.kind==='analysis') await update({axisItems});
       },true);
       // PostgreSQL is released before the independent workbook stage starts.
       await update({parts,status:'queued',phase:'writing',processed:0,leaseUntil:null});
     }else{
-      const rows=snapshotRows(job.parts,abort.signal);
-      const book=createXlsxStream(job.columns,job.total,rows,async n=>update({processed:n,phase:n===job.total?'finalizing':'writing'}));
+      const book=job.kind==='analysis'
+        ?createPivotXlsxStream(job.columns,job.total,()=>snapshotRows(job.parts,abort.signal),job.axisItems,
+          {from:job.from,until:job.until},async (n,stage)=>update({processed:n,progressStage:stage}))
+        :createXlsxStream(job.columns,job.total,snapshotRows(job.parts,abort.signal),
+          async n=>update({processed:n,phase:n===job.total?'finalizing':'writing'}));
       abort.signal.addEventListener('abort',()=>book.stream.destroy(abort.signal.reason),{once:true});
-      const uploaded=await put('colun/exports/'+id+'/COLUN_CuadroResultado.xlsx',book.stream,
+      const filename=job.kind==='analysis'?'COLUN_Analisis.xlsx':'COLUN_CuadroResultado.xlsx';
+      const uploaded=await put('colun/exports/'+id+'/'+filename,book.stream,
         {access:'private',addRandomSuffix:false,multipart:true,ttlDays:1,
          contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',abortSignal:abort.signal});
       await book.completion;
       const info=await get(uploaded.url,{access:'private',useCache:false});
       const bytes=info?.blob.size || 0;await info?.stream?.cancel();
       await update({file:uploaded.url,status:'ready',phase:'ready',processed:job.total,bytes,
-        sheets:Math.max(1,Math.ceil(job.total/EXCEL_LIMIT)),completedAt:new Date().toISOString(),leaseUntil:null});
+        sheets:job.kind==='analysis'?2:Math.max(1,Math.ceil(job.total/EXCEL_LIMIT)),completedAt:new Date().toISOString(),leaseUntil:null});
       if(job.parts.length) await del(job.parts);
     }
   }catch(e){
     abort.abort(e);
     console.error('Export stage:',e.code || e.name);
-    await update({status:'error',leaseUntil:null,error:e.message?.startsWith('Un campo')?e.message:'No se pudo completar la exportación. Volvé a intentar.'}).catch(()=>{});
+    await update({status:'error',leaseUntil:null,error:e.message?.startsWith('Un campo') || e.message?.startsWith('El período supera')?e.message:'No se pudo completar la exportación. Volvé a intentar.'}).catch(()=>{});
   }finally{clearTimeout(timer);}
 }
 
@@ -384,6 +424,12 @@ export default async function handler(req,res){
     if(req.method==='GET' && url.pathname==='/api/metadata') return send(res,200,await metadata(url.searchParams.get('refresh')==='1',url.searchParams.get('until')));
     if(req.method==='GET' && url.pathname==='/api/rows') return send(res,200,await pageRows(Number(url.searchParams.get('page') || 1),url.searchParams.get('until')));
     if(req.method==='GET' && url.pathname==='/api/analysis/dimensions') return send(res,200,await analysisDimensions(url.searchParams.get('until')));
+    if(req.method==='GET' && url.pathname==='/api/analysis/detail') return send(res,200,await analysisDetail(
+      Number(url.searchParams.get('page') || 1),url.searchParams.get('until'),
+      url.searchParams.get('dimensionNull')==='1'?null:url.searchParams.has('dimensionvalor')?url.searchParams.get('dimensionvalor'):undefined,
+      url.searchParams.get('branchNull')==='1'?null:url.searchParams.get('branch'),
+      url.searchParams.get('accountNull')==='1'?null:url.searchParams.get('account'),
+      url.searchParams.get('companyNull')==='1'?null:url.searchParams.get('company')));
     if(req.method==='GET' && url.pathname==='/api/analysis') return send(res,200,await analysisRows(
       Number(url.searchParams.get('page') || 1),url.searchParams.get('until'),
       url.searchParams.get('dimensionNull')==='1'?null:
@@ -401,6 +447,16 @@ export default async function handler(req,res){
       if(!body || typeof body!=='object' || Array.isArray(body)) throw new Error('INVALID_REQUEST');
       return send(res,202,publicState(await startExport(body.until,body.columns)));
     }
+    if(req.method==='POST' && url.pathname==='/api/analysis/exports'){
+      if(!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return send(res,503,{error:'Falta conectar el almacenamiento privado de exportaciones en Vercel.'});
+      const origin=req.headers.origin;
+      if(origin && new URL(origin).host!==req.headers.host) return send(res,403,{error:'Origen no permitido.'});
+      const body=await requestBody(req);
+      if(!body || typeof body!=='object' || Array.isArray(body) ||
+        (body.dimensionNull && body.dimensionvalor!==undefined)) throw new Error('INVALID_REQUEST');
+      const dimension=body.dimensionNull?null:body.dimensionvalor;
+      return send(res,202,publicState(await startExport(body.until,undefined,'analysis',dimension)));
+    }
     const match=url.pathname.match(/^\/api\/exports\/([a-f0-9]{32})(\/file)?$/);
     if(req.method==='GET' && match){
       const state=await readState(match[1]);
@@ -411,7 +467,7 @@ export default async function handler(req,res){
       const result=await get(job.file,{access:'private',useCache:false});
       if(!result?.stream) return send(res,404,{error:'El archivo ya no está disponible.'});
       res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition':'attachment; filename="COLUN_CuadroResultado.xlsx"','Cache-Control':'no-store'});
+        'Content-Disposition':'attachment; filename="'+(job.kind==='analysis'?'COLUN_Analisis.xlsx':'COLUN_CuadroResultado.xlsx')+'"','Cache-Control':'no-store'});
       const stream=Readable.fromWeb(result.stream);stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);return;
     }
     send(res,404,{error:'Recurso no encontrado.'});
