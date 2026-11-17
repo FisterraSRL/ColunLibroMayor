@@ -20,6 +20,7 @@
       <div class="actions">
         <button id="refresh" class="button secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 11-2l3 3M4 16l3 3a7 7 0 0 0 11-2"/></svg><span>Actualizar</span></button>
         <button id="export" class="button primary" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg><span>Exportar a Excel</span></button>
+        <button id="analysis-export" class="button primary" hidden disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg><span>Exportar tabla dinámica</span></button>
       </div>
     </section>
     <nav class="view-tabs" role="tablist" aria-label="Vistas del cuadro de resultado">
@@ -63,6 +64,7 @@
         <div class="analysis-filters"><label for="analysis-dimension">Valor de dimensión <select id="analysis-dimension" disabled><option value="all">Todos los valores</option></select></label><label for="analysis-company-jump">Ir a empresa <select id="analysis-company-jump" disabled><option value="">Elegí una empresa…</option></select></label></div>
       </div>
       <div id="analysis-error" class="error" role="alert" hidden></div>
+      <div id="analysis-export-status" class="analysis-export-status" role="status" hidden></div>
       <div id="analysis-summary" class="analysis-summary" role="status">Elegí la solapa para consultar el análisis.</div>
       <div id="analysis-grid" class="grid analysis-grid" role="region" tabindex="0" aria-label="Análisis por cuenta y empresa" aria-busy="false">
         <table id="analysis-table" hidden><thead id="analysis-head"></thead><tbody id="analysis-body"></tbody></table>
@@ -71,6 +73,12 @@
       </div>
       <div class="pagination"><span id="analysis-range" class="range">Esperando resultados…</span><div class="page-controls"><span class="page-size">100 cuentas por página</span><button id="analysis-first" class="icon-button" aria-label="Primera página de análisis" disabled>«</button><button id="analysis-prev" class="icon-button" aria-label="Página anterior de análisis" disabled>‹</button><span id="analysis-page">Página —</span><button id="analysis-next" class="icon-button" aria-label="Página siguiente de análisis" disabled>›</button><button id="analysis-last" class="icon-button" aria-label="Última página de análisis" disabled>»</button></div></div>
     </section>
+    <dialog id="analysis-detail" class="analysis-detail" aria-labelledby="analysis-detail-title">
+      <div class="detail-heading"><div><h2 id="analysis-detail-title">Detalle del saldo</h2><p id="analysis-detail-context"></p></div><button id="analysis-detail-close" class="button secondary" type="button">Cerrar</button></div>
+      <div id="analysis-detail-status" role="status"></div>
+      <div class="detail-grid"><table><thead><tr><th>Fecha</th><th>Documento</th><th>Descripción</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Valor de dimensión</th></tr></thead><tbody id="analysis-detail-body"></tbody></table></div>
+      <div class="detail-pages"><button id="analysis-detail-prev" class="button secondary" type="button">Anterior</button><span id="analysis-detail-page"></span><button id="analysis-detail-next" class="button secondary" type="button">Siguiente</button></div>
+    </dialog>
     <footer><span><span class="footer-dot"></span>Origen: <code>public.colun_colun_cuadroresultado</code></span><span>Consulta de solo lectura<span class="help-divider">·</span>Importes y fechas según el origen</span></footer>
   </main>
 </body></html>

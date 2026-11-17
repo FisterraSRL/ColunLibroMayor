@@ -1,4 +1,4 @@
-const analysisState={active:false,busy:false,until:null,dimensionUntil:null,page:1,pages:1,selection:'all',lastData:null};
+const analysisState={active:false,busy:false,until:null,dimensionUntil:null,page:1,pages:1,selection:'all',lastData:null,detail:null,detailPage:1,detailPages:1,exporting:false};
 window.ColunAnalysis={get active(){return analysisState.active;},get until(){return analysisState.until;},refresh(){return loadAnalysis(1,true);}};
 
 function analysisBusy(value){
@@ -8,6 +8,7 @@ function analysisBusy(value){
   $('analysis-grid').setAttribute('aria-busy',String(value));
   $('analysis-dimension').disabled=value || !analysisState.dimensionUntil;
   $('analysis-company-jump').disabled=value || !analysisState.lastData?.companies.length;
+  $('analysis-export').disabled=value || analysisState.exporting || !analysisState.lastData || $('until-input').value!==analysisState.until;
   for(const [id,disabled] of [['analysis-first',analysisState.page<=1],['analysis-prev',analysisState.page<=1],
     ['analysis-next',analysisState.page>=analysisState.pages],['analysis-last',analysisState.page>=analysisState.pages]])
     $(id).disabled=value || disabled;
@@ -58,10 +59,16 @@ function renderAnalysis(data){
     const branch=document.createElement('td');branch.textContent=firstOfGroup?row.cuentaraman??'(Sin rama)':'';
     branch.title=row.cuentaraman??'(Sin rama)';tr.append(branch);
     const account=document.createElement('td');account.textContent=row.cuenta??'(Sin cuenta)';account.title=row.cuenta??'(Sin cuenta)';tr.append(account);
-    for(const amount of row.amounts){
+    row.amounts.forEach((amount,index)=>{
       const cell=document.createElement('td');cell.className='analysis-amount';
-      cell.textContent=formattedAmount(amount);cell.title=amount===null?'Sin movimientos':String(amount);tr.append(cell);
-    }
+      if(amount!==null){
+        const button=document.createElement('button');button.type='button';button.className='amount-link';
+        button.textContent=formattedAmount(amount);button.title='Ver movimientos que componen este saldo';
+        button.setAttribute('aria-label','Ver detalle de '+(row.cuenta??'cuenta sin nombre')+' en '+(data.companies[index]??'empresa sin nombre')+': '+formattedAmount(amount));
+        button.addEventListener('click',()=>openAnalysisDetail(row,data.companies[index]));cell.append(button);
+      }else{cell.textContent='—';cell.title='Sin movimientos';}
+      tr.append(cell);
+    });
     body.append(tr);previousBranch=row.cuentaraman;
   }
   $('analysis-body').replaceChildren(body);
@@ -107,13 +114,96 @@ function selectView(view){
   $('grid-view').hidden=analysisState.active;
   $('analysis-view').hidden=!analysisState.active;
   $('export').hidden=analysisState.active;
+  $('analysis-export').hidden=!analysisState.active;
   $('refresh').disabled=analysisState.active?analysisState.busy:state.busy;
   $('refresh').querySelector('span').textContent=$('refresh').disabled?'Consultando…':'Actualizar';
   updateFilterHint();
   if(analysisState.active){
     if(!analysisState.lastData || analysisState.until!==$('until-input').value) loadAnalysis(1,true);
+    else analysisBusy(false);
   }else if(!state.busy && state.activeUntil!==$('until-input').value) load(1,true);
 }
+
+function detailParams(page){
+  const {row,company,until,selection}=analysisState.detail;
+  const params=new URLSearchParams({page:String(page),until});
+  for(const [key,value,nullFlag] of [['branch',row.cuentaraman,'branchNull'],['account',row.cuenta,'accountNull'],['company',company,'companyNull']]){
+    if(value===null) params.set(nullFlag,'1');else params.set(key,value);
+  }
+  if(selection==='null') params.set('dimensionNull','1');
+  else if(selection.startsWith('value:')) params.set('dimensionvalor',selection.slice(6));
+  return params;
+}
+async function loadAnalysisDetail(page){
+  $('analysis-detail-status').textContent='Consultando movimientos…';
+  $('analysis-detail-prev').disabled=$('analysis-detail-next').disabled=true;
+  try{
+    const data=await api('/api/analysis/detail?'+detailParams(page));
+    analysisState.detailPage=data.page;analysisState.detailPages=data.pages;
+    const body=document.createDocumentFragment();
+    for(const row of data.rows){
+      const tr=document.createElement('tr');
+      const saldo=Number(row.debemonedappal||0)-Number(row.habermonedappal||0);
+      for(const value of [displayDate(String(row.fecha||'').slice(0,10)),row.documento,row.descripcion,
+        formattedAmount(row.debemonedappal),formattedAmount(row.habermonedappal),formattedAmount(saldo),dimensionLabel(row.dimensionvalor)]){
+        const td=document.createElement('td');td.textContent=value??'—';tr.append(td);
+      }
+      body.append(tr);
+    }
+    $('analysis-detail-body').replaceChildren(body);
+    $('analysis-detail-status').textContent=number.format(data.total)+' movimientos';
+    $('analysis-detail-page').textContent='Página '+data.page+' de '+data.pages;
+    $('analysis-detail-prev').disabled=data.page<=1;$('analysis-detail-next').disabled=data.page>=data.pages;
+  }catch(error){$('analysis-detail-status').textContent=error.message;}
+}
+function openAnalysisDetail(row,company){
+  analysisState.detail={row,company,until:analysisState.until,selection:analysisState.selection};
+  $('analysis-detail-context').textContent=[row.cuentaraman??'(Sin rama)',row.cuenta??'(Sin cuenta)',company??'(Sin empresa)',
+    analysisState.selection==='all'?'Todas las dimensiones':$('analysis-dimension').selectedOptions[0]?.textContent].join(' · ');
+  $('analysis-detail-body').replaceChildren();
+  $('analysis-detail').showModal();loadAnalysisDetail(1);
+}
+function showAnalysisExport(message,job){
+  const panel=$('analysis-export-status');panel.hidden=false;panel.replaceChildren(document.createTextNode(message));
+  if(job?.status==='ready'){
+    const link=document.createElement('a');link.className='button primary';link.textContent='Descargar Excel';
+    link.href='/api/exports/'+job.id+'/file';link.download='COLUN_Analisis.xlsx';panel.append(' ',link);
+  }
+}
+async function pollAnalysisExport(id){
+  try{
+    const job=await api('/api/exports/'+id);
+    if(job.status==='ready'){
+      analysisState.exporting=false;sessionStorage.removeItem('colun-analysis-export');analysisBusy(false);
+      showAnalysisExport('Excel listo: '+number.format(job.total)+' movimientos y tabla dinámica.',job);return;
+    }
+    if(job.status==='error'){
+      analysisState.exporting=false;sessionStorage.removeItem('colun-analysis-export');analysisBusy(false);
+      showAnalysisExport(job.error || 'No se pudo crear el Excel.');return;
+    }
+    const stage=job.phase==='reading'?'Guardando movimientos':job.progressStage==='cache'?'Armando la tabla dinámica':'Escribiendo el Excel';
+    showAnalysisExport(stage+' · '+number.format(job.captured || job.processed || 0)+' de '+number.format(job.total || 0));
+  }catch(error){showAnalysisExport('Reconectando con la exportación…');}
+  setTimeout(()=>pollAnalysisExport(id),5000);
+}
+$('analysis-export').addEventListener('click',async()=>{
+  if(analysisState.exporting || !analysisState.lastData) return;
+  analysisState.exporting=true;analysisBusy(false);showAnalysisExport('Preparando los movimientos y la tabla dinámica…');
+  const body={until:analysisState.until};
+  if(analysisState.selection==='null') body.dimensionNull=true;
+  else if(analysisState.selection.startsWith('value:')) body.dimensionvalor=analysisState.selection.slice(6);
+  try{
+    const job=await api('/api/analysis/exports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    sessionStorage.setItem('colun-analysis-export',job.id);pollAnalysisExport(job.id);
+  }catch(error){analysisState.exporting=false;analysisBusy(false);showAnalysisExport(error.message);}
+});
+{
+  const previous=sessionStorage.getItem('colun-analysis-export');
+  if(previous && /^[a-f0-9]{32}$/.test(previous)){analysisState.exporting=true;pollAnalysisExport(previous);}
+}
+$('analysis-detail-close').addEventListener('click',()=>$('analysis-detail').close());
+$('analysis-detail-prev').addEventListener('click',()=>loadAnalysisDetail(analysisState.detailPage-1));
+$('analysis-detail-next').addEventListener('click',()=>loadAnalysisDetail(analysisState.detailPage+1));
 
 $('tab-grid').addEventListener('click',()=>selectView('grid'));
 $('tab-analysis').addEventListener('click',()=>selectView('analysis'));
