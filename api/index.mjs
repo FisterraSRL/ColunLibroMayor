@@ -10,6 +10,7 @@ import {waitUntil,attachDatabasePool} from '@vercel/functions';
 
 const TABLE='public.colun_colun_cuadroresultado';
 const PAGE_SIZE=100;
+const ANALYSIS_PAGE_SIZE=100;
 const SNAPSHOT_BATCH=10000;
 const EXCEL_LIMIT=1048575;
 const JOB_TTL=24*60*60*1000;
@@ -75,6 +76,59 @@ async function pageRows(page,until){
     text:'SELECT * FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY ctid LIMIT $3 OFFSET $4',
     values:[meta.from,meta.until,PAGE_SIZE,(page-1)*PAGE_SIZE],rowMode:'array'})).rows);
   return {...meta,page,rows};
+}
+
+function analysisFilter(period,dimension){
+  const values=[period.from,period.until];
+  let where=DATE_WHERE;
+  if(dimension!==undefined){
+    if(dimension!==null && (typeof dimension!=='string' || dimension.length>1024)) throw new Error('INVALID_DIMENSION');
+    values.push(dimension);
+    where+=' AND dimensionvalor IS NOT DISTINCT FROM $3';
+  }
+  return {where,values};
+}
+
+async function analysisDimensions(until){
+  const period=requestedPeriod(until);
+  const values=await transaction(async client=>(await client.query(
+    'SELECT DISTINCT dimensionvalor FROM '+TABLE+' WHERE '+DATE_WHERE+' ORDER BY dimensionvalor NULLS LAST',
+    [period.from,period.until])).rows.map(row=>row.dimensionvalor));
+  return {...period,values};
+}
+
+async function analysisRows(page,until,dimension){
+  if(!Number.isSafeInteger(page) || page<1) throw new Error('INVALID_PAGE');
+  const period=requestedPeriod(until);
+  const {where,values}=analysisFilter(period,dimension);
+  return transaction(async client=>{
+    const total=Number((await client.query('SELECT count(*) AS total FROM (SELECT 1 FROM '+TABLE+
+      ' WHERE '+where+' GROUP BY cuentaraman, cuenta) AS grouped',values)).rows[0].total);
+    const pages=Math.max(1,Math.ceil(total/ANALYSIS_PAGE_SIZE));
+    if(page>pages) throw new Error('INVALID_PAGE');
+    const companies=(await client.query('SELECT DISTINCT empresa FROM '+TABLE+' WHERE '+where+
+      ' ORDER BY empresa NULLS LAST',values)).rows.map(row=>row.empresa);
+    const keys=(await client.query('SELECT cuentaraman, cuenta FROM '+TABLE+' WHERE '+where+
+      ' GROUP BY cuentaraman, cuenta ORDER BY cuentaraman NULLS LAST, cuenta NULLS LAST LIMIT $'+
+      (values.length+1)+' OFFSET $'+(values.length+2),[...values,ANALYSIS_PAGE_SIZE,(page-1)*ANALYSIS_PAGE_SIZE])).rows;
+    if(!keys.length) return {...period,dimension,page,pages,total,pageSize:ANALYSIS_PAGE_SIZE,companies,rows:[]};
+    const conditions=keys.map((key,index)=>{
+      const first=values.length+index*2+1;
+      return '(cuentaraman IS NOT DISTINCT FROM $'+first+' AND cuenta IS NOT DISTINCT FROM $'+(first+1)+')';
+    });
+    const amounts=(await client.query('SELECT cuentaraman, cuenta, empresa, SUM(COALESCE(debemonedappal::numeric,0) - COALESCE(habermonedappal::numeric,0)) AS amount FROM '+
+      TABLE+' WHERE '+where+' AND ('+conditions.join(' OR ')+') GROUP BY cuentaraman, cuenta, empresa',
+      [...values,...keys.flatMap(key=>[key.cuentaraman,key.cuenta])])).rows;
+    const companyIndex=new Map(companies.map((name,index)=>[name,index]));
+    const rowIndex=new Map(keys.map((key,index)=>[JSON.stringify([key.cuentaraman,key.cuenta]),index]));
+    const rows=keys.map(key=>({cuentaraman:key.cuentaraman,cuenta:key.cuenta,amounts:Array(companies.length).fill(null)}));
+    for(const item of amounts){
+      const row=rowIndex.get(JSON.stringify([item.cuentaraman,item.cuenta]));
+      const company=companyIndex.get(item.empresa);
+      if(row!==undefined && company!==undefined) rows[row].amounts[company]=item.amount;
+    }
+    return {...period,dimension,page,pages,total,pageSize:ANALYSIS_PAGE_SIZE,companies,rows};
+  });
 }
 
 function jobPath(id){return 'colun/exports/'+id+'/state.json';}
@@ -329,6 +383,11 @@ export default async function handler(req,res){
     if(req.method==='GET' && url.pathname==='/api/health') return send(res,200,{ok:true,platform:'vercel',databaseConfigured:!!process.env.PGPASSWORD,exportsConfigured:!!process.env.BLOB_READ_WRITE_TOKEN || !!process.env.BLOB_STORE_ID});
     if(req.method==='GET' && url.pathname==='/api/metadata') return send(res,200,await metadata(url.searchParams.get('refresh')==='1',url.searchParams.get('until')));
     if(req.method==='GET' && url.pathname==='/api/rows') return send(res,200,await pageRows(Number(url.searchParams.get('page') || 1),url.searchParams.get('until')));
+    if(req.method==='GET' && url.pathname==='/api/analysis/dimensions') return send(res,200,await analysisDimensions(url.searchParams.get('until')));
+    if(req.method==='GET' && url.pathname==='/api/analysis') return send(res,200,await analysisRows(
+      Number(url.searchParams.get('page') || 1),url.searchParams.get('until'),
+      url.searchParams.get('dimensionNull')==='1'?null:
+        url.searchParams.has('dimensionvalor')?url.searchParams.get('dimensionvalor'):undefined));
     if(req.method==='GET' && url.pathname==='/api/export-direct'){
       let columns;
       try{columns=JSON.parse(url.searchParams.get('columns') || 'null');}catch{throw new Error('INVALID_COLUMNS');}
@@ -362,6 +421,7 @@ export default async function handler(req,res){
     if(e.message==='INVALID_PAGE') return send(res,400,{error:'Número de página inválido.'});
     if(e.message==='INVALID_DATE') return send(res,400,{error:'La fecha hasta no es válida.'});
     if(e.message==='INVALID_COLUMNS') return send(res,400,{error:'Seleccioná al menos una columna válida para exportar.'});
+    if(e.message==='INVALID_DIMENSION') return send(res,400,{error:'El valor de dimensión no es válido.'});
     if(e.message==='INVALID_REQUEST' || e instanceof SyntaxError) return send(res,400,{error:'La solicitud de exportación no es válida.'});
     if(e.message==='EXPORT_BUSY') return send(res,409,{error:'Ya hay una exportación en curso. Esperá a que termine antes de cambiar el período o las columnas.'});
     if(!res.headersSent) send(res,503,{error:url.pathname.startsWith('/api/exports')
