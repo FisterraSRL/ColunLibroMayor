@@ -1,4 +1,4 @@
-const analysisState={active:false,busy:false,until:null,dimensionUntil:null,page:1,pages:1,selection:'all',lastData:null,detail:null,detailPage:1,detailPages:1,exporting:false};
+const analysisState={active:false,busy:false,until:null,dimensionUntil:null,page:1,pages:1,selection:'all',lastData:null,detail:null,detailPage:1,detailPages:1,exporting:false,downloadUrl:null};
 window.ColunAnalysis={get active(){return analysisState.active;},get until(){return analysisState.until;},refresh(){return loadAnalysis(1,true);}};
 
 function analysisBusy(value){
@@ -163,44 +163,31 @@ function openAnalysisDetail(row,company){
   $('analysis-detail-body').replaceChildren();
   $('analysis-detail').showModal();loadAnalysisDetail(1);
 }
-function showAnalysisExport(message,job){
+function showAnalysisExport(message,href){
   const panel=$('analysis-export-status');panel.hidden=false;panel.replaceChildren(document.createTextNode(message));
-  if(job?.status==='ready'){
+  if(href){
     const link=document.createElement('a');link.className='button primary';link.textContent='Descargar Excel';
-    link.href='/api/exports/'+job.id+'/file';link.download='COLUN_Analisis.xlsx';panel.append(' ',link);
+    link.href=href;link.download='COLUN_Analisis.xlsx';panel.append(' ',link);
   }
-}
-async function pollAnalysisExport(id){
-  try{
-    const job=await api('/api/exports/'+id);
-    if(job.status==='ready'){
-      analysisState.exporting=false;sessionStorage.removeItem('colun-analysis-export');analysisBusy(false);
-      showAnalysisExport('Excel listo: '+number.format(job.total)+' movimientos y tabla dinámica.',job);return;
-    }
-    if(job.status==='error'){
-      analysisState.exporting=false;sessionStorage.removeItem('colun-analysis-export');analysisBusy(false);
-      showAnalysisExport(job.error || 'No se pudo crear el Excel.');return;
-    }
-    const stage=job.phase==='reading'?'Guardando movimientos':job.progressStage==='cache'?'Armando la tabla dinámica':'Escribiendo el Excel';
-    showAnalysisExport(stage+' · '+number.format(job.captured || job.processed || 0)+' de '+number.format(job.total || 0));
-  }catch(error){showAnalysisExport('Reconectando con la exportación…');}
-  setTimeout(()=>pollAnalysisExport(id),5000);
 }
 $('analysis-export').addEventListener('click',async()=>{
   if(analysisState.exporting || !analysisState.lastData) return;
-  analysisState.exporting=true;analysisBusy(false);showAnalysisExport('Preparando los movimientos y la tabla dinámica…');
-  const body={until:analysisState.until};
-  if(analysisState.selection==='null') body.dimensionNull=true;
-  else if(analysisState.selection.startsWith('value:')) body.dimensionvalor=analysisState.selection.slice(6);
+  analysisState.exporting=true;analysisBusy(false);
+  showAnalysisExport('Preparando los movimientos y la tabla dinámica… Esto puede tardar varios minutos.');
+  const params=new URLSearchParams({until:analysisState.until});
+  if(analysisState.selection==='null') params.set('dimensionNull','1');
+  else if(analysisState.selection.startsWith('value:')) params.set('dimensionvalor',analysisState.selection.slice(6));
   try{
-    const job=await api('/api/analysis/exports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    sessionStorage.setItem('colun-analysis-export',job.id);pollAnalysisExport(job.id);
+    const response=await fetch('/api/analysis/export-direct?'+params,{cache:'no-store'});
+    if(!response.ok){let body;try{body=await response.json();}catch{}throw new Error(body?.error || 'No se pudo crear el Excel.');}
+    const blob=await response.blob();
+    if(analysisState.downloadUrl) URL.revokeObjectURL(analysisState.downloadUrl);
+    analysisState.downloadUrl=URL.createObjectURL(blob);
+    showAnalysisExport('Tu Excel con datos y tabla dinámica está listo.',analysisState.downloadUrl);
   }catch(error){analysisState.exporting=false;analysisBusy(false);showAnalysisExport(error.message);}
+  finally{analysisState.exporting=false;analysisBusy(false);}
 });
-{
-  const previous=sessionStorage.getItem('colun-analysis-export');
-  if(previous && /^[a-f0-9]{32}$/.test(previous)){analysisState.exporting=true;pollAnalysisExport(previous);}
-}
+window.addEventListener('beforeunload',()=>{if(analysisState.downloadUrl) URL.revokeObjectURL(analysisState.downloadUrl);});
 $('analysis-detail-close').addEventListener('click',()=>$('analysis-detail').close());
 $('analysis-detail-prev').addEventListener('click',()=>loadAnalysisDetail(analysisState.detailPage-1));
 $('analysis-detail-next').addEventListener('click',()=>loadAnalysisDetail(analysisState.detailPage+1));
