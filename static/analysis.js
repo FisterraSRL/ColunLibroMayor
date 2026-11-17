@@ -7,6 +7,7 @@ function analysisBusy(value){
   if(value){$('analysis-table').hidden=true;$('analysis-empty').hidden=true;}
   $('analysis-grid').setAttribute('aria-busy',String(value));
   $('analysis-dimension').disabled=value || !analysisState.dimensionUntil;
+  $('analysis-company-jump').disabled=value || !analysisState.lastData?.companies.length;
   for(const [id,disabled] of [['analysis-first',analysisState.page<=1],['analysis-prev',analysisState.page<=1],
     ['analysis-next',analysisState.page>=analysisState.pages],['analysis-last',analysisState.page>=analysisState.pages]])
     $(id).disabled=value || disabled;
@@ -16,7 +17,7 @@ function analysisBusy(value){
   }
 }
 
-function dimensionLabel(value){return value===null?'(Sin valor)':String(value);}
+function dimensionLabel(value){return value===null?'(Sin valor)':value===''?'(Vacío)':String(value);}
 function populateDimensions(data){
   const select=$('analysis-dimension');
   const previous=analysisState.selection;
@@ -45,6 +46,9 @@ function renderAnalysis(data){
     const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);
   }
   $('analysis-head').replaceChildren(head);
+  const jump=$('analysis-company-jump');jump.replaceChildren(new Option('Elegí una empresa…',''));
+  data.companies.forEach((name,index)=>jump.add(new Option(name??'(Sin empresa)',String(index))));
+  jump.disabled=!data.companies.length;
   const body=document.createDocumentFragment();
   let previousBranch;
   for(const row of data.rows){
@@ -115,6 +119,13 @@ $('tab-grid').addEventListener('click',()=>selectView('grid'));
 $('tab-analysis').addEventListener('click',()=>selectView('analysis'));
 $('analysis-dimension').addEventListener('change',event=>{
   analysisState.selection=event.target.value;loadAnalysis(1);
+});
+$('analysis-company-jump').addEventListener('change',event=>{
+  if(event.target.value==='') return;
+  const th=$('analysis-head').querySelectorAll('th')[Number(event.target.value)+2];
+  if(!th) return;
+  $('analysis-grid').scrollTo({left:th.offsetLeft-440,behavior:'smooth'});
+  th.classList.remove('flash');void th.offsetWidth;th.classList.add('flash');
 });
 for(const [id,page] of [['analysis-first',()=>1],['analysis-prev',()=>analysisState.page-1],
   ['analysis-next',()=>analysisState.page+1],['analysis-last',()=>analysisState.pages]])
